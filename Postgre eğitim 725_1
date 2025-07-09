@@ -1,0 +1,974 @@
+-- payten 725 1.gün
+-- Temel Yedekleme Araçları
+-- Yedekleme Araçları – Uygulama
+-- Replikasyon Temelleri
+-- Replikasyon – Uygulama
+
+
+-- https://www.postgresql.org/docs/16/backup.html
+
+/*
+
+Chapter 26. Backup and Restore
+Table of Contents
+
+26.1. SQL Dump
+26.1.1. Restoring the Dump
+26.1.2. Using pg_dumpall
+26.1.3. Handling Large Databases
+26.2. File System Level Backup
+26.3. Continuous Archiving and Point-in-Time Recovery (PITR)
+26.3.1. Setting Up WAL Archiving
+26.3.2. Making a Base Backup
+26.3.3. Making a Base Backup Using the Low Level API
+26.3.4. Recovering Using a Continuous Archive Backup
+26.3.5. Timelines
+26.3.6. Tips and Examples
+26.3.7. Caveats
+As with everything that contains valuable data, PostgreSQL databases should be backed up regularly. While the procedure is essentially simple, it is important to have a clear understanding of the underlying techniques and assumptions.
+
+There are three fundamentally different approaches to backing up PostgreSQL data:
+
+SQL dump (sürekiliği bulunmamakta)
+
+File system level backup (anlık tüm cluster snapshot)
+
+Continuous archiving (son alınan file snapshot yanında transaction logların alınması işlemi  )
+
+Each has its own strengths and weaknesses; each is discussed in turn in the following sections.
+
+--https://www.postgresql.org/docs/17/backup-dump.html
+26.1. SQL Dump 
+26.1.1. Restoring the Dump
+26.1.2. Using pg_dumpall
+26.1.3. Handling Large Databases
+
+The idea behind this dump method is to generate a file with SQL commands that, when fed back to the server, will recreate the database in the same state as it was at the time of the dump. PostgreSQL provides the utility program pg_dump for this purpose. The basic usage of this command is:
+
+Sql dump yöntemi ile veritabanının t anındaki durumunun sql komutları halinde bir dosyaya yazılması işlemidir.  Bu dosya ile geri dönüş yapıldığında t anındaki durumuna dönüş sağlanmış olacaktır.
+
+--https://www.postgresql.org/docs/current/reference-client.html 
+
+pg_dump  db_name > dumpfile   --> sql file oluşmuş oluyor.
+
+pg_dump db_name kısmı standart output üretir sonrasında yazdığımız “>” işareteti ile bu çıktıları yakala  “dumpfile”  isminde bir dosyaya yaz demiş oluyoruz.
+
+pg_dump işlemini başlatan veritabanı kullanıcısının sql dump alacağı objelerde okuma (select) ya da kullanma (usage) yetkisi olması gerekiyor.
+
+
+psql -d dbname -f dumpfile --> bir file komutları oynamatsı  ,restore edilmesi
+
+
+--https://www.postgresql.org/docs/current/app-pgdump.html 
+
+pg_dump [connection-option...] [option...] [dbname] 
+
+
+pg_dump -h 10.10.10.114 -p 5432 -d profelis > sql_profelis
+
+
+dbname
+Specifies the name of the database to be dumped. If this is not specified, the environment variable PGDATABASE is used. If that is not set, the user name specified for the connection is used.
+
+dbname belirtilmez ise default olarak postgres içindeki objelerin dump işlemi başlatılır.
+
+
+
+-a
+--data-only
+Dump only the data, not the schema (data definitions). Table data, large objects, and sequence values are dumped.
+
+Sadece verileri almak istediğimizde. Örneğin tabloda bulunan sadece veriyi almak istediğimiz durumda.
+
+
+pg_dump -h 10.10.10.114 -p 5432 -d profelis -t ürün_tablo -a > sql_profelis
+
+
+-c
+--clean
+Output commands to DROP all the dumped database objects prior to outputting the commands for creating them. This option is useful when the restore is to overwrite an existing database. If any of the objects do not exist in the destination database, ignorable error messages will be reported during restore, unless --if-exists is also specified.
+
+pg_dump ile restore edilen objeler veritabanında var ise drop edilirler. -f format belirtilerek alınan dump tipinde bu aktif değildir.
+
+-C
+--create
+Begin the output with a command to create the database itself and reconnect to the created database. (With a script of this form, it doesn't matter which database in the destination installation you connect to before running the script.) If --clean is also specified, the script drops and recreates the target database before reconnecting to it.
+
+
+pg_dump ile restore edilen veritabanı var ise drop edilir. -f format belirtierek alınan dump filelarda bu aktif değildir.
+
+
+-f file
+--file=file
+Send output to the specified file. This parameter can be omitted for file based output formats, in which case the standard output is used. It must be given for the directory output format however, where it specifies the target directory instead of a file. In this case the directory is created by pg_dump and must not exist before.
+
+
+-F parametresi ile pg_dump komutu çalıştırdığımız kullanabiliyoruz. Hangi konuma çıktı alınacağını belirtmek için.
+
+
+-F format
+--format=format
+Selects the format of the output. format can be one of the following:
+
+Çıktı Formatını değiştirmek istediğimiz durumda  -F komutu ve çıktı formatını belirtiyoruz. 
+
+örn: pg_dump -Fd  
+
+
+format belirtilerek alınan dump dosyaları restore işleminde "pg_restore" aracı kullanılır. 
+
+-j njobs
+--jobs=njobs
+
+paralel çalıştırmak istediğimiz. 
+
+20 tane paralel çalıtşırdım, burdaki 500gb !!!.
+
+--schema=pattern
+
+Belirli şemaların içinde objeleri dump çıktısını almak istediğimizde.
+
+pg_dump -h 10.10.10.114 -p 5432 -d profelis -n log_semasi  > sql_profelis
+
+
+-N pattern
+--exclude-schema=pattern
+
+Bazı şemaların dump çıktısında bulunmasını istemediğimiz durumda.
+
+
+pg_dump -h 10.10.10.114 -p 5432 -d profelis -N log_semasi  > sql_profelis
+
+
+-O
+--no-owner
+Dump çıktısı oluşurken objelerdeki kullanıcı yetkileri olmadan alınmasını sağlamaktadır.
+
+
+-s
+--schema-only 
+
+dump dosyasında sadece ddl komutlarının olması isteniyor ise.
+
+
+-t pattern
+--table=pattern
+
+dump dosyasında bulunacak tabloları filtrelemek için.
+
+-T pattern
+--exclude-table=pattern
+
+dump dosyasında olmaması istenen tabloları filtrelemek için.
+
+-Z level
+-Z method[:detail]
+--compress=level
+--compress=method[:detail]
+
+Fc , Fd ile alınan dump dosyasının sıkıştırma metodunu belirlemek için.
+
+
+--inserts
+insert blokları halinde olması için.
+
+
+Son olarak;
+
+Bağlantı yapılacak postgresql sunucusu için connection string;
+
+pg_dump -d dbname -h host -p port -U username  . . . dump parametreleri şeklinde.
+
+export PGPASSPASSWORD = 123213;
+pg_dump .. 
+batch scripti haline getirmek isteniyor ise pg_dump komutu çalıştırıldığında, bağlantı yapılan postgres serverı şifre soracaktır. Şifrenin arkaplanda gönderilmesi için .pgpass file tanımı yapılmalıdır.
+
+Yada şifreyi PGPASSWORD şeklinde pg_dump komutundan önce belirtilebilir.
+
+pg_dump kullanım örneklerini bakacak olursak,
+
+
+
+pg_dump kullanım örneklerini bakacak olursak,
+
+##########################
+
+To dump a database called mydb into an SQL-script file:
+
+$ pg_dump mydb > db.sql
+To reload such a script into a (freshly created) database named newdb:
+
+$ psql -d newdb -f db.sql
+
+
+##########################
+
+To dump a database into a custom-format archive file:
+
+$ pg_dump -Fc mydb > db.dump
+To dump a database into a directory-format archive:
+
+$ pg_dump -Fd mydb -f dumpdir
+
+
+To dump a database into a directory-format archive in parallel with 5 worker jobs:
+
+$ pg_dump -Fd mydb -j 5 -f dumpdir
+To reload an archive file into a (freshly created) database named newdb:
+
+
+$ pg_restore -d newdb db.dump
+
+To reload an archive file into the same database it was dumped from, discarding the current contents of that database:
+
+
+To dump a single table named mytab:
+
+$ pg_dump -t mytab mydb > db.sql
+
+
+To dump all tables whose names start with emp in the detroit schema, except for the table named employee_log:
+
+$ pg_dump -t 'detroit.emp*' -T detroit.employee_log mydb > db.sql
+
+
+-- Çalışma XXX 
+
+1- root kullanıcısında
+
+mkdir /pgdata/backups
+chown postgres:postgres /pgdata/backups
+
+
+2- dvdrental yedeği indirme
+
+wget  https://www.postgresqltutorial.com/wp-content/uploads/2019/05/dvdrental.zip -P /pgdata/backups/
+
+3-  postgres kullanıcısına geçiş yapılır.
+
+su - postgres
+
+4 - dvdrental veritabanının zipten çıkarılması.
+
+unzip /pgdata/backups/dvdrental.zip
+
+zip ten çıkan dosyamız .tar uzantılı olduğu için pg_restore komutu kullanılması gerekiyor.
+
+
+7- restore edilecek veritabanı oluşturur.
+
+/usr/lib/postgresql/17/bin/psql -c "create database dvdrental";
+
+
+8- pg_restore komutu ile dump dosyası restore edilir.
+
+/usr/lib/postgresql/17/bin/pg_restore -d dvdrental  dvdrental.tar
+
+
+Çalışma XXX
+
+
+1- Bir önceki çalışmada restore ettiğimiz dvdrental dumpını alalım.
+
+/usr/lib/postgresql/17/bin/pg_dump -d dvdrental > /pgdata/backups/dvdrental.sql 
+
+2- restore adımı 
+/usr/lib/postgresql/17/bin/psql -d  dvdrental_donus -f dvdrental.sql 
+
+
+Çalışma XXX 
+
+Veritabanımız çok büyük alacağımız dump işleminde sıkıştırma işlemi ve paralel şekilde çalışarak işlemi hızlı yapmak  istiyoruz.
+
+1. /usr/lib/postgresql/17/bin/pg_dump -d dvdrental -j 5 -Fd -f  /pgdata/backups/dvdrental_compress 
+
+2.oluşturduğumuz dumpı restore etmek istediğimizde, j 5 paralel 5 process ile çalışması 
+
+/usr/lib/postgresql/16/bin/pg_restore -d dvdrental -j 5 dvdrental_compress.tar
+
+
+26.1.2. Using pg_dumpall
+
+https://www.postgresql.org/docs/16/backup-dump.html#BACKUP-DUMP-ALL
+
+
+pg_dump dumps only a single database at a time, and it does not dump information about roles or tablespaces (because those are cluster-wide rather than per-database). To support convenient dumping of the entire contents of a database cluster, the pg_dumpall program is provided. pg_dumpall backs up each database in a given cluster, and also preserves cluster-wide data such as role and tablespace definitions. The basic usage of this command
+
+pg_dump ile sadece bir veritabanına ait dump işlemleri gerçekleştirebiliriz. Postgres clusterda bulunanan kullanıcı tanımlarını ve veritabanlarını tek komutla almak istediğimizde, pg_dumpall kullanmamız gerekiyor. 
+
+Basit kullanımı:
+
+pg_dumpall > dumpfile
+
+geri postgres sunucusuna yükleme için:
+
+psql -f dumpfile postgres
+
+pg_dumpall paralel çalışmama özelliği bulunmamaktadır.
+
+Tüm kümenin iskeletini alınmak istendiğinde kullanılması yararlıdır. Bu iskelet restore edilerek. pg_dump ile alınan veritabanları tek tek restore edilebilir. pg_dump ile alınan dumplarda kullanıcı rolleri tanımlı olmamasında kaynaklı hata oluşmasının önüne geçilmiş olur.
+
+
+dump yöntemi ile server taşınması planlanıyor ise;
+
+1- pg_dumpall  -g ile global objelerin dumpı
+2- pg_dump ile tek tek veritabanlarının dumpı
+3- 1.adımda alınan pg_dumpall restore edilmesi.
+4- 2.adımda alınan veritabanların restore edilmesi.
+
+Çalışma 
+
+1- Postgres kümesinin -g pg_dumpall işlemi gerçekleştirelim
+
+/usr/lib/postgresql/17/bin/pg_dumpall -g -f /pgdata/backups/global.sql
+
+
+/usr/lib/postgresql/16/bin/pg_dumpall -s -f /pgdata/backups/global.sql --> test ortamlarını (metadata)
+
+
+NOT:
+
+psql --set ON_ERROR_STOP=on dbname < dumpfile
+
+Her iki durumdada eksik şekilde restore olmuş olacaktır.
+
+ya hep ya hiç mantığı ile çalışması için yarıda kalması durumunda yada bir hata olduğunda veritabanın işlem öncesi duruma dönmesi için.
+
+-1  -- single-transaction parametresi psql komutuna eklenebilir.
+
+11:00 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1- root kullanıcısında
+
+mkdir /pgdata/backups
+chown postgres:postgres /pgdata/backups
+
+2- dvdrental yedeği indirme
+
+wget  https://www.postgresqltutorial.com/wp-content/uploads/2019/05/dvdrental.zip -P /pgdata/backups/
+
+3-  postgres kullanıcısına geçiş yapılır.
+
+su - postgres
+
+4 - dvdrental veritabanının zipten çıkarılması.
+
+unzip /pgdata/backups/dvdrental.zip
+
+zip ten çıkan dosyamız .tar uzantılı olduğu için pg_restore komutu kullanılması gerekiyor.
+
+5 -  pg_dump aracının konumu kontrol edilir.
+
+find / -iname pg_ctl 2> /dev/null
+
+6 - restore yapacağım veritabanı ile uyumlu pg_dump aracı belirlenir
+
+ /usr/lib/postgresql/16/bin/pg_restore --version
+
+versiyon kontrolu restore edilecek veritabanı ile uyumlu olduğu gözlemlenir.
+pg_restore (PostgreSQL) 16.4 (Ubuntu 16.4-1.pgdg22.04+2)
+
+7- restore edilecek veritabanı oluşturur.
+
+/usr/lib/postgresql/16/bin/psql -c "create database dvdrental";
+
+8- pg_restore komutu ile dump dosyası restore edilir.
+
+/usr/lib/postgresql/16/bin/pg_restore -d dvdrental  dvdrental.tar
+
+pg_dump,   -> pg_restore -Fd ile pg_dump işlemi gerçekleştiğinde kullanılıyor.   -a data only 
+pg_dumpall -> kullanıcılar , database_cluster iskeletini almak istediğimizde.    -s kullanıcı ve ddl iskeleti
+
+26.2. File System Level Backup
+
+Postgresql serverına ait dosyaların olduğu dizinin t anındaki durumun kopyalanması ile gerçekleşmektedir. (kopyalama)
+
+
+Veritabanı sürekli veri akan ve değişen bir yapı olduğu için her an dosyaların yapıları değişime açıktır.
+bir t anına ait şekilde dosyalar taşınmaz ise tutarsızlık gerçekleşebilir ve sunucu pg_ctl start komutu ile başlamaz.
+
+
+A) Postgresql Sunucu Kapatılması ile backup işlemi gerçekleştirmek.
+
+1- Postgresql server durdurulmalı
+2- Data dizini tar formatı ile sunucu üzerinde başka bir konuma alınabilir.
+3- Postgresql server geri başlatılır.
+
+tar -cf backup.tar  data_directory
+
+B) Postgresql Sunucu Kapatılmadan backup işlemi gerçekleştirmek.
+
+Bazı filesystem lerde dosyaların t anındaki görüntüsü sabit tutacak ve paralelde verilerin değişmesine izin veren özellik bulunmaktadır.
+
+Bu tarz bir filesystem ,
+
+1- Postgresql checkpoint işlemi başlatılır.
+2- Filesystemde t anında snapshot işlemi başlatılır.
+3- bu snapshot anına ait dosyalar başka bir konuma taşınır.
+4- Filesystemde tutulan snapshot serbest bırakılır.
+
+örn. zfs  
+
+
+C) Postgresql Sunucusunun minimum düzeyde kapatılması ile backup işlemini gerçekleştirmek.
+
+1- Postgresql data dizini rsync ile kopyalanması gerçekleştirilir.
+2- Postgresql server kapatılarak. rsync –checksum komutu ile sadece değişen dosyalar tekrardan kopyalanır.
+3- Postgresql Server geri başlatılır. 
+
+
+ÇALIŞMA rsync
+
+rsync -r /pgdata/pg16/ /pgdata/backups/rsync_backup
+
+-- sunucu kapatılarak , sadece değişiklik olanları güncellenmesi
+rsync -r /pgdata/pg16/ /pgdata/backups/rsync_backup --checksum
+
+profelis dosyası yedek tarafında görülecektir.
+
+--https://www.postgresql.org/docs/17/continuous-archiving.html
+
+filesystem ->  pg_basebackup,  postgres tool  database_cluster yedeğini almak istediğimizde.
+
+
+PostgreSQL, her zaman, kümenin veri dizinindeki pg_wal/ alt dizininde bir WAL (Write Ahead Log) kaydı tutar.Bu wal dizininde, veritabanının data bloklarında yapılan her değişikliğin log kaydı tutulur. Bu wal dizinin öncelikli amacı crash anında veri kaybının önüne geçmek içindir. Sistemde bir çökme yaşarsa, PostgreSQL, son kontrol noktasından itibaren yapılan değişiklikleri  "yeniden oynatarak" (REDO log) Postgresql kapanma öncesi duruma geri getirir.
+
+
+Bu yöntemin bize kazandırdığı ikinci fayda ise, 
+
+Bir kez aldığımız file-system-level backup üzerine, eksiksiz, şekilde pg_wal dizinindeki dosyaların yedeğinini alır isek.Aldığımız file backup üzerine bu wal dosyalarını oynatarak sistemi mevcut durumuna getirebiliriz.
+
+pazartesi fullbackup kopyaladım. 
+salı    wal dosyalar yedeği
+çarşamba wal dosyalar yedeği
+perşembe  wal dosyalar yedeği
+
+
+Bu yöntem ile;
+
+1)  Mükemmel şekilde t anında kopyaladığımız bir data dizinine ihtiyacımız bulunmamaktadır. Data dizininde oluşacak herhangi bir tutarsızlık pg_wal dizininde kayıtlar sayesinde düzeltilecektir.
+
+2) Bu wal dosyalarının sürekli arşivleyerek, Sık sık full backup almanın uygun olmayacağı büyük veri tabanlarının olduğu PostgreSQL serverların backupların tutulmasında yöntem olarak kullanabiliriz.
+
+3) Wal dosyalarını belirli bir noktaya kadar oynatılması sağlanabilmektedir. Bu sayede alınan full backup üzerine wal dosyasında bulunana değişiklikler istediğimiz bir ana kadar oynatabiliriz. Bu teknik ile point-in-time recovery (PITR)  özelliğini sağlanır.
+
+4) ikinci bir sunucuya taşıyacağımız data dizinin üzerine aralıksız wal dosyalarının taşınmasını sağlar isek, bu sunucuyu warm standby  olarak kullanabiliriz. Herhangi bir zamanda ikinci sunuyu aktif ederek NEREDEYSE güncel bir kopyasına sahip olabiliriz.
+
+pg_dump ve pg_dumpall sonucu dışarı sql komutları oluşmaktadır. Wal dosyalarında ise değişime uğrayan data page bloklarının bilgisi bulunmaktadır. Bundan dolayı dump çıktılarında wal dosyaları replay edilemez.
+
+Veritabanları gibi sürekli veri akışının olduğu yapılarda, kurgulanan backup yönteminde bu sürekli değişen verilerin akışını kapsayacak yapıda olmalı. Kesik kesik alınan pg_dump / pg_dumpall çıktılar bu noktada bunu sağlamayacaktır. 
+
+
+26.3.1. Setting Up WAL Archiving 
+
+PostgreSQL gerçekleşen transaction sonucu değişen data blocklarını bilgisini 16mb lık wal dosyalarına yazarak ilerliyor. Bir checkpoint işlemi gerçekleştiği durumda checkpoint işleminden önceki wal dosyalarını temizliyor.
+
+filesystem backup aldığım bir yedeğin alındığı zamandan itibaren bu wal dosyalarını silinmeden önce başka bir yere taşıyabilirsem. Bu backup üzerine bu arşivlenen wal dosyaları birleştirerek redo-log  işleminin başlamasını sağlayabilirim.
+
+select name,setting,short_desc from pg_Settings where name like 'archive%';
+
+
+Bu özelliği kullanabilmek için, 
+archive_mode = on
+archive_command = tetiklenmesi istediğim komutu belirtmem gerekiyor. 
+
+archive_command = 'test ! -f /mnt/server/archivedir/%f && cp %p /mnt/server/archivedir/%f'  
+
+örnek komutu inceler isek.
+
+test ! -f wal dosyası kopyalanan yere daha önce taşınmışmı kontrol ediyor.
+cp kopyalama işini yapan komutumuz.
+
+%p  wal dizinin komutu
+ve %f wal dosyasının ismi bu değişkenler postgresql tarafından sağlanan değişkenler.
+
+
+ÇALIŞMA
+
+Postgres kullanıcısında
+
+1- wal dosyalarının kopyasını tutacağımız bir dizin oluşturulur.
+
+ mkdir -p /data/backups/archive_wals
+
+2- psql ile postgresql sunucusuna bağlanılır. Archive işlemi için ayarlamalar yapılır.
+
+alter system set archive_mode to on;
+
+alter system set archive_command to 'test ! -f /data/backups/archive_wals/%f && cp %p /data/backups/archive_wals/%f'  ;
+
+
+test ! -f /data/backups/archive_wals/000000010000000000000082 && cp pg_wal/000000010000000000000082 /data/backups/archive_wals/000000010000000000000082
+
+archive_command = 'test ! -f /mnt/server/archivedir/%f && cp %p /mnt/server/archivedir/%f'  # Unix
+-- olması gereken
+test ! -f /mnt/server/archivedir/00000001000000A900000065 && cp pg_wal/00000001000000A900000065 /mnt/server/archivedir/00000001000000A900000065
+
+
+-- archive_command sağlıklı çalışmıyor bir sorun diyelim.
+archive_command = '/bin/bash' şeklinde tanımlanabilir.
+
+
+alter system set archive_command to '123';
+
+select pg_reload_conf();
+
+archiver sürecini loglarda yada pg_Stat_arciver takip edilmesi.
+
+-- https://www.postgresql.org/docs/16/monitoring-stats.html#PG-STAT-ARCHIVER-VIEW
+
+archived_count bigint
+Number of WAL files that have been successfully archived
+
+Ne kadar dosya başarılı arşivlendi
+
+last_archived_wal text
+Name of the WAL file most recently successfully archived
+
+en son arşiv işlemi başarılı olan wal dosyasının ismi
+
+last_archived_time timestamp with time zone
+Time of the most recent successful archive operation
+
+⚠️ en son arşiv işlemi başarılı olma zamanı
+
+failed_count bigint
+Number of failed attempts for archiving WAL files
+
+Kaç kez hata ile karşılaşıldığı
+
+last_failed_wal text
+Name of the WAL file of the most recent failed archival operation
+
+Arşivlenmesinde ata alınan dosya
+
+⚠️ last_failed_time timestamp with time zone
+Time of the most recent failed archival operation
+
+En son arşiv işlemi başarısız olma zamanı
+
+
+☢️ If the file system containing pg_wal/ fills up, PostgreSQL will do a PANIC shutdown. No committed transactions will be lost, but the database will remain offline until you free some space.
+
+pg_wal dizini dolduğu durumda PostgreSQL kapanır. Transactionların logunu tutacak yer kalmadığı için.
+
+
+26.3.2. Making a Base Backup
+https://www.postgresql.org/docs/16/continuous-archiving.html#BACKUP-BASE-BACKUP
+
+
+The easiest way to perform a base backup is to use the pg_basebackup tool. It can create a base backup either as regular files or as a tar archive. 
+
+Postgresql client application içinde pg_basebackup aracı bulunmaktadır. Bu arac ile postgresql dizinin kopyasını Postgresql çalışırken kopyasını alabiliyoruz.
+
+
+Bu pg_basebackup aracınıda öğrendiğimiz göre, Üretim ortamlarımız için kesinti olmadan sürekii yedek alacağımız yöntemi oluşturacak bilgiye ve araçlara sahip olduk.
+
+Sürekli yedekleme sağlayacak backup yapısını kurgulamak için.
+
+1-PostgreSQL dizinin full kopyası lazım (pg_basebackup)
+2-pg_wal dizininde dosyalarında sürekli olarak yedekleyecek şekilde PostgreSQL serverın ayarlanması (archiver process)
+
+Çalışma pg_basebackup
+
+
+Backup alınacak data dizin oluşturulmamış ise
+mkdir -p /data/backups/basebackups/   
+
+su - postgres
+/usr/lib/postgresql/17/bin/pg_basebackup -h 10.10.11.131 -p 5432 -D   /pgdata/backups/basebackups/basebackup_20241017
+
+
+26.3.4. Recovering Using a Continuous Archive Backup
+https://www.postgresql.org/docs/16/continuous-archiving.html#BACKUP-PITR-RECOVERY
+
+En kötü senaryo gerçekleşti PostgreSQL serverını/sunucusunun kaybettik.
+Yeni bir sunucuya PostgreSQL serverımızı ayağa kaldırmamız gerekiyor bu durumda.
+
+
+cp -r basebackup_20250520/ /data/yedekten_donus/   
+
+
+touch standby.signal ,recovery modda başlatıyor.
+
+14:00 
+
+pgdump , pgdumpall
+archive_mode , archive_command , ,wal archiving
+pg_basebackup , fiziksel yedek almak istediğimiz, data_dizinin kopyasını almak istediğimizde.
+
+
+
+26.3.5. Timelines
+
+Wal dosyaları yazılırken bir zaman çizelgesine sahiptirler. Bu zaman çizelgesinden yararlanılarak . wal dosyaları tekrardan oynatılırken belirtilen bir zamana kadar oynatılması sağlanabilir. 
+Tüm wal dosyalarının oynatılmasının aksine.
+
+
+Bu sayede veritabanında değişikliğe uğradığı zamandan öncesine dönüş sağlanabilir.
+
+
+restore_command = 'cp /pgdata/backups/archive_wals/%f %p'  
+recovery_target_time =’2023-01-17 10:36:11’
+
+
+CALİSMA pitr
+
+
+-- master 
+create database pazartesi;
+
+-- backup
+pg_basebackup -D   /data/backups/basebackups/basebackup_pazartesi
+
+11:22 0000000100000000000000B4
+
+-- master 
+
+psql -c "create database sali;"
+
+psql -c "select pg_Switch_wal()"
+
+
+11:23 0000000100000000000000B5
+
+-- master 
+psql -c "create database carsamba;"
+psql -c "select pg_Switch_wal()"
+
+11:24 0000000100000000000000B6
+
+-- master
+psql -c "create database cuma;"
+
+11:25 0000000100000000000000B7
+
+
+
+önce fiziksel kopyam lazım. pg_basebackup 
+
+cp -R basebackup_pazartesi/  /data/pitr
+
+açık archive parametleri kapatıldı.
+
+
+-- arşivlediğim wal dosyalarını yedekten_donus üzerine alacaktır. 
+restore_command = 'cp /data/backups/archive_wals/%f %p'  ;
+
+
+-- şimdiye kadar arşivlenen ve gelmeye devam eden wal dosyalarını oynatacaktır.
+
+recovery_target_time ='2025-05-20 11:24:00'
+
+touch standby.signal
+
+11:24 0000000100000000000000B6
+
+ileriye doğru gidilmede sıkıntı yok. geri dönmek istendiğinde. 
+
+tekradan fiziksel kopya + rrestore_command + recovery_target_time  ayarı gerekecektir.
+
+-- wal dosyalarını icersi incelemek istenirse.
+
+/usr/lib/postgresql/17/bin/pg_waldump 000000010000000000000071
+
+/*------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/high-availability.html
+⭕️ Chapter 26. High Availability, Load Balancing, and Replication
+-- Yüksek erişlebilirlik, Yük dengeleme ve Replikasyon
+------------------------------------------------------------
+
+🔸 High Availability , Yüksek Erişlebilirlik,
+Birincil sunucu (Master) arızalanması durumunda ikinci bir sunucunun hızlıca görevi devralması Yüksek Erişlebilirlik .
+
+🔸 Load Balancing , Yük dengeleme
+Aynı verinin birden fazla sunucu tarafından sunulması (yük dengeleme).
+
+
+MASTER , PRIMARY, Birincil,  Read / Write işlemleri kabul eden sunucu, 
+STANDBY, SECONDARY , Birincil masterdaki sunucudaki değişiklikleri izleyen sunucular.
+Hot standby , recovery modda, bağlantı kabul eden ve okuma işlemlerine izin veren standby .varsayılan
+Warm standby, recovery modda bekleyen standby. Bağlantı kabul etmez.
+
+PostgreSQL replikasyon süreçlerinin temeli, WAL (Write-Ahead Log) dosyalarının taşınmasına dayanır.
+Wal dosyası yok ise replikasyonda yok diyebiliriz.
+
+
+WAL Dosyası Transferi İki yöntemle gerçekleşiyor;
+
+🔶 1. File-Based Log Shipping (Dosya Tabanlı) (async)
+🔸  Directly moving WAL records from one database server to another is typically described as LOG SHIPPING.
+🔸	WAL kayıtlarının bir veritabanı sunucusundan diğerine doğrudan taşınması işlemi, LOG SHIPPING olarak tanımlanır.
+🔸	WAL segmentleri (varsayılan olarak 16MB) tamamlandıkça karşı sunucuya aktarılır. Ana sunucu aniden çökme yaşanır ise gönderilmemiş WAL kayıtların kaybı olabilir.
+🔸  Doğası gereği Async dir.
+🔸  Archiver process (arşivleme) süreci üzerinden gerçekleştirilir.
+🔸  Yedekleme (Backup) ve Felaket Kurtarma (Disaster Recovery) senaryolarında tercih edilir.
+ 
+
+🔶 2. Record-Based Log Shipping (Streaming Replication) (sync - async)
+
+🔸  Record-based log shipping is more granular and streams WAL changes incrementally over a network connection.
+🔸  WAL değişikliklerini anlık (streaming) gönderir.
+🔸	Streaming replication kullanılarak gerçekleştirilir.
+🔸  Sync ve Async wal transferi sağlanabilir.Veri kaybı oluşması engellenebilir.
+🔸  Standby Sunucu ve Yüksek Erişilebilirlik (High Availability) çözümlerinde kullanılır.
+
+Postgresql kullanabileceğimiz 3 farklı replikasyon yöntemi bulunmakta;
+
+1️⃣ Log shipping  standby	      
+, master (archive_command) , restore_command (standby )  , archive_cleanup_command ()
+- standby,  read only  
+- standby.signal 
+- Backup çözümü düşünülmesi daha iyi olur.
+- database_cluster
+
+2️⃣ Streaming replication  , streaming protokol, master (wal_sender) , standby(wal_reciver) 
+- standby , read only  
+- standby.signal
+- Standby Çözümü
+- database_cluster
+
+3️⃣ logical replication  , streaming protokol, publisher (producer) , subscriber (consumer) 
+-  standby , read/write  
+-  Change Data Capture (CDC)
+-  Datanın bir bölümünü replikasyonunda
+
+
+15:15 - 16:00 (45dk)
+
+27.2.4. Setting Up a Standby Server 
+
+iki farklı postgresql servere çalışacak sunucu ayarlanır.
+
+wal dosyalarını taşınması sağlamak şifresiz ssh ayarlanır.
+
+
+master / standby 
+
+su - postgres 
+
+ssh-keygen -t rsa
+
+ssh-copy-id -i ~/.ssh/id_rsa.pub postgres@standby_ip
+
+
+
+wal dosyaları transferinin ayarlanmıas log- shipping.
+
+-- MASTER üzerinde
+
+archive_mode = on
+archive_command = 'test ! -f postgres@STANDBY_IP:/pgdata/backup_wals/%f && rsync -a %p 
+postgres@STANDBY_IP:/pgdata/backup_wals/%f'
+
+archive_cleanup_command = 'pg_archivecleanup /data/backups/archive_wals/%f %r'
+
+
+/data/backups/archive_wals
+
+-- standby üzerinde fiziksel kopyla alınması. pg_basebackup
+
+/usr/lib/postgresql/17/bin/pg_basebackup -h 10.10.11.141 -p 5432 -D /data/simple_data/
+
+select pg_is_in_recovery(); true ,   standby.singal vardır demek dizinde.
+
+-- standby -> promote komuut yürütürsen okuma yazma kabul ediyor.
+
+pg_Ctl promote
+
+psql -> select pg_promote();
+
+select pg_is_in_recovery(); --> false
+
+
+⚠️ archive_timeout parametresi eğer log shipping yapılıyor ise, tanımlanması önerilir.
+default durumu 0 yani aktif değildir.
+
+💻 Örneğin gece hiç transaction gerçekleşmiyor ise son wal dosyası gece boyu dolmayacağı için son wal dosyası sabah işlemlerin başladığı saati bekleyecektir.
+
+archive_timeout 600 olarak ayarlanır ise, her 5dk bir switch_wal işlem gerçekleşecektir, yarım kalan wal dosyası üzerine yeni wal dosyası oluşacağı için tetiklenmesi sağlanır.
+
+Eski wal dosyası yarımda olsa archive_command yarım wal dosyasındada tetiklenecektir.
+
+
+logical replication temelli çalışan mülti master çözümleri
+pg_edge, edb pgd ,  pg_logical 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
