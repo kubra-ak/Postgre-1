@@ -1,0 +1,1215 @@
+Eğitim Konuları
+
+PostgreSQL Kurulumu
+PostgreSQL’de bgwriter ve checkpointer
+PostgreSQL’de kilitler
+İstatistikler
+Transactionlar
+İleri Düzey Bakım işlemleri
+
+Table Partitioning
+Copy komutu
+
+Eğitimler hafta 
+içi  09:30-10:30 / 11:00-12:00 
+ve   14:00-15:00 / 15:30-16:30 
+saatleri arasında gerçekleşecektir. büğün 12:30 - 14:00 
+
+09:30-10:30 / 11:00-12:00 
+13:30-14:30 / 15:00-16:00 
+
+
+1. Postgresql Giriş
+
+
+-----------------------------------------------------------------------------
+-- 🌐 https://www.postgresql.org/
+-- ⭕️ Giriş
+/* 
+
+✨ PostgreSQL: The World's Most Advanced Open Source Relational Database ✨
+✨ PostgreSQL: Dünyanın En Gelişmiş Açık Kaynak İlişkisel Veritabanı ✨
+
+New to PostgreSQL?
+
+PostgreSQL, 35 yılı aşkın süredir aktif olarak geliştirilen, güvenilirliği, sorunsuz çalışması ve yüksek performansıyla bilinen güçlü ve açık kaynaklı bir nesne-ilişkisel veritabanı sistemidir.
+
+-----------------------------------------------------------------------------
+-- 🌐 https://www.postgresql.org/#Latest%20Releases
+-- ⭕️ Latest Releases
+-- PostgresSQL Sürümleri
+
+
+The PostgreSQL Global Development Group has released an update to all supported versions of PostgreSQL, including 17.4, 16.8, 15.12, 14.17, and 13.20.
+
+
+
+-- 🌐 https://www.postgresql.org/support/versioning/
+-- ⭕️ Postgres sürümleri
+
+-- ⭕️ The PostgreSQL Global Development Group ( PostgreSQL Küresel Geliştirme Grubu )
+🔸 Postgres yılda bir kez major (genelde eylül ayı içinde),kalan aylarda sene içinde 3 ayda bir 
+minor sürüm yayınlamaktadır. Önemli bir güvenlik açığı olduğunda ek minor sürümler yayınlanabiliyor.
+
+🔸Major sürüm, Yeni özellikler ve perfomans kazanımları
+🔸Minor sürüm, Günvenlik açıklarını kapatmak için
+
+
+
+
+
+-- ⭕️ releases 
+Site üzerinde bulunan tabloda postgres versiyonların EOL (end of life) tarihlerine ulaşılabilir.
+
+Version	Current minor	Supported	First Release		Final Release
+17		17.4			Yes			September 26, 2024	November 8, 2029
+16		16.8			Yes			September 14, 2023	November 9, 2028
+15		15.12			Yes			October 13, 2022	November 11, 2027
+14		14.17			Yes			September 30, 2021	November 12, 2026
+13		13.20			Yes			September 24, 2020	November 13, 2025
+12		12.22			No			October 3, 2019		November 21, 2024
+
+
+-- 🌐 https://www.postgresql.org/list/
+-- ⭕️ maill grubları
+🔸Üzerinden community ile gerçekleşen mail arşivlerine ulaşılabilir, 
+🔸Geçmişte sorulan üzerinden karşılaştığımız hatalar aranababilir. 
+🔸Kendimizde community mail grubuna yardımcı olmaları için soru açabiliriz.
+🔸İstediğimiz mail gruplarına abone olarak mailleşlemeleri takip edebilirsiniz.
+
+
+
+-----------------------------------------------------------------------------
+-- 🌐 https://www.postgresql.org/docs/current/index.html
+-- ⭕️ Postgresql Offical Doc
+
+🔸Postgres geliştirici grubu tarafından düzenlenmektedir
+🔸Postgres kullanımına yönelik ilk kaynak olarak bakılmalıdır.
+
+
+
+-- 🌐 https://wiki.postgresql.org/wiki/Main_Page
+-- ⭕️ Postgresql Wiki
+
+🔸 how-to , ipucu ve tricklerin toplandığı bir web sayfasıdır.
+🔸 Postgresql iligi bir çok başlık toparlanmıştır 
+🔸 Postgres perfomance iyileştirmesi için yazılar
+🔸 Postgres ilgili sunumlar
+vb.. yararlı bilgiler yer alır.
+
+
+-- 🌐 https://www.postgresql.org/docs/current/history.html
+-- ⭕️ Postgresql Gelişimi
+🔸 Dünyanın en gelişmiş açık kaynak projesi 
+🔸 Ölçekelenebilirlik ve Özelleştirme için tasarlandı
+🔸 ANSI/ISO uyumlu SQL desteği  
+🔸 30 yılı aşkın süredir aktif olarak geliştirilmekte
+🔸 Postgres Üniversite ilk adımı (1986-1993) ,  Abd kamu kurumları tarafından sponsor
+🔸 Postgres95 (1994-1995)      , Orjinal kod %25 oranın azaltıldı , %30-%50 perfomans
+🔸 PostgreSQL (1996-current)   , PostQUEL sorgu dili -> SQL dili dönüşümü gerkçekleşti. 
+
+-- 🌐 https://www.postgresql.org/about/
+-- ⭕️ Postgresql Hakkında
+🔸 Yaygın işletim sistemleri üzerinde çalışabilmektedir. 
+💥 En iyi perfomans linux işletim sistemleri üzerinde göstermektedir.
+
+- Postgresql Sahip olduğu Özellikler
+
+🔶 Data Types (geniş veri tipi yelpazesi , özelleştirebilir veri tipi )
+🔸 Primitives: Integer, Numeric, String, Boolean
+🔸 Structured: Date/Time, Array, Range / Multirange, UUID
+🔸 Document: JSON/JSONB, XML, Key-value (Hstore)
+🔸 Geometry: Point, Line, Circle, Polygon
+🔸 Customizations: Composite, Custom Types 
+
+🔶 Data Integrity (veri tutarlılığı)
+🔸 UNIQUE, NOT NULL
+🔸 Primary Keys
+🔸 Foreign Keys
+🔸 Exclusion Constraints
+🔸 Explicit Locks, Advisory Locks
+🔶 Concurrency, Performance (paralel sorgu , perfomans)
+🔸 Indexing: B-tree, Multicolumn, Expressions, Partial
+🔸 Advanced Indexing: GiST, SP-Gist, KNN Gist, GIN, BRIN, Covering indexes, Bloom filters
+🔸 Sophisticated query planner / optimizer, index-only scans, multicolumn statistics
+🔸 Transactions, Nested Transactions (via savepoints)
+🔶 Multi-Version concurrency Control (MVCC)  (Birden fazla kişinin çalışması)
+🔸 Parallelization of read queries and building B-tree indexes
+🔸 Table partitioning
+🔸 All transaction isolation levels defined in the SQL standard, including Serializable
+🔸 Just-in-time (JIT) compilation of expressions
+🔶 Reliability, Disaster Recovery (dayanaklılık ve felaketlerden sorunsuz dönüş)
+🔸 Write-ahead Logging (WAL)
+🔸 Replication: Asynchronous, Synchronous, Logical
+🔸 Point-in-time-recovery (PITR), active standbys
+🔸 Tablespaces
+
+🔶 Security (güvenlik)
+🔸 Authentication: GSSAPI, SSPI, LDAP, SCRAM-SHA-256, Certificate, and more
+🔸 Robust access-control system
+🔸 Column and row-level security
+🔸 Multi-factor authentication with certificates and an additional method
+
+
+🔶 Extensibility (Genişletilebilirlik )
+🔸 Stored functions and procedures
+🔸 Procedural Languages: PL/pgSQL, Perl, Python, and Tcl. There are other languages available 🔸through extensions, e.g. Java, JavaScript (V8), R, Lua, and Rust
+🔸 SQL/JSON constructors, query functions, path expressions, and JSON_TABLE
+🔸 Foreign data wrappers: connect to other databases or streams with a standard SQL interface
+
+dblink, sorgu yollama için 
+
+postgres_fdw  tabloyu mapliyorsunuz
+orcale_fdw    join perfomansı
+🔸 Customizable storage interface for tables
+🔸 Many extensions that provide additional functionality, including PostGIS
+
+🔶 Internationalisation, Text Search ( Dil desteği ve gelişmiş metin arama )
+🔸 Support for international character sets, e.g. through ICU collations
+🔸 Case-insensitive and accent-insensitive collations
+🔸 Full-text search
+
+
+Eklenti çeşitliliği postgres önemli özelliklerinden biridir.
+
+-- 🌐 https://github.com/pgvector/pgvector
+-- ⭕️ pg_vector
+Günümüzde llm (large language models) ve RAG sistemleri için vectordb olarak postgres kullanmamıza olanak sağlar.
+
+Postgres, Vector arama , vector indeks özelliği kazandırıyor. 
+
+
+-- 🌐 https://www.timescale.com/
+-- ⭕️ timescaledb
+
+IOT , AI, crypto gibi verilerin daha perfomanslı yönetilmesi sağlıyor.
+Örn, Zabbix monitoring aracı verileri postgres timescaledb üzerinde tutmaktadır.
+
+-- 🌐 https://postgis.net/
+-- ⭕️ postgis
+Mekansal verileri işlenmesi ve analizinde kullanılan çok yaygın bir eklentisidir.
+
+-- 🌐 https://gist.github.com/joelonsql/e5aa27f8cc9bd22b8999b7de8aee9d47
+-- ⭕️ github adresin binlerce eklenti 
+
+
+1️⃣ Postgres CORE , eğitimde işleyeceğimiz
+
+Postgres çok sevilen ve community geniş bir kitle olduğu için çok fazla özelleştirmeler sahip.
+
+2️⃣ Postgres CORE + eklentiler ile yardımcı yada yeni özellikler kazanıyor.
+3️⃣ Postgres CORE forklanarak ve kaynak kodların değiştirilmesi geliştirilen ürünler 
+4️⃣ PostgreSQL uyumlu çalışan özünde postgres core engine bulunmayan ürünler
+
+3 ve 4 adımlarda postgres coredan farklı ürünlerdir bunların güncellenmesinde  güvenlik açıklarından PostgreSQL Global Development Group sorumlu değildir. Ürününü başka yapılar geliştirmektedir. 
+
+3️⃣
+-- 🌐 https://www.enterprisedb.com/docs/epas/latest/
+-- ⭕️ EDB Postgres Advanced Server (EPAS)  ( Oracle compatibility)
+Postgres core, üzerine perfomans iyileştirmeleri ve oracle uyumluluğa sahip postgres.
+
+-- 🌐 https://www.yugabyte.com/
+-- ⭕️ yugabytedb  (Distributed PostgreSQL for Modern Apps) 
+postgres 15 verisyonu, global postgres 17 sağladığı halde
+
+master standby
+distrubeted ,   yugabytede master master, 
+
+4️⃣
+-- 🌐 https://www.cockroachlabs.com/docs/stable/postgresql-compatibility
+-- ⭕️ cockroachdb  sql-disbureted 
+
+
+-- https://noncodersuccess.medium.com/is-postgresql-taking-over-the-database-world-e3a0680230a9
+Postgres, sektör ihtiyaçlarına yönelik nosql, ıot , mekansal , analtilik sorgular  çözümler sunuyor.
+
+
+-- 🌐 https://www.postgresql.org/docs/current/glossary.html
+-- ⭕️ Glossary - Terimler Sözlüğü 
+
+PostgreSQL ve ilişkilel veritabanlarında genel tanımlamalar bulunmakta. Döküman içersinde anlamadığım bir tanım olduğunda buraya bakabiliriz.
+
+Örn: database cluster ? cluster?
+
+A collection of databases and global SQL objects, and their common static and dynamic metadata. Sometimes referred to as a cluster. A database cluster is created using the initdb program.
+
+In PostgreSQL, the term cluster is also sometimes used to refer to an instance. (Don't confuse this term with the SQL command CLUSTER.)
+
+-- ⭕️ Postgres diğer veritabanlarına göre farklı tanımlar 
+
+Yaygın Kullanım 				| PostgreSQL Karşılığı
+==============================	|======================================
+Table or Index 					| Relation 
+Row  (satır) 					| Tuple
+Column  (kolon) 				| Attribute 
+Schema  (şema) 					| Namespace
+Data Block  (diskte bloklara)	| Page (veri bloğu diskte olduğunda)
+Page  (ramdeki bloklara) 	   	| Buffer (veri bloğu bellekte olduğunda)
+Data Dizini 					| Cluster
+
+
+-- 🌐 https://www.postgresql.org/docs/current/limits.html
+-- ⭕️ Appendix K. PostgreSQL Limits
+
+🔸Database size	unlimited (diskin limitine bağlı)
+🔸number of databases , 4,294,950,911
+🔸relation size 32 TB  , bir tablonun yada indexin maksimum boyutu 
+🔸rows per table , 4,294,967,295
+🔸columns per table , 1600 
+🔸field size 1 GB , tablomuzdaki bir değerin ulaşabileceği maximum boyut
+🔸indexes per table , unlimited
+🔸columns per index , 32 
+🔸identifier length  63bytes , obje isimlerin (tablo,kolon vb .. ) alabileceği uzunluk fazlası kesiliyor
+
+*/
+select '2' as abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef
+enpterisedb pgee fujitse,  tde , daha güvenlik sitemleri ekleniyor. 
+
+
+-- kurulum 
+
+https://www.postgresql.org/download/linux/ubuntu/
+
+
+
+-- ubuntu sabit ip 
+
+vi /etc/netplan/50-cloud-init.yaml
+
+network:
+  version: 2
+  ethernets:
+    ens33:
+      dhcp4: false
+      addresses:
+        - 10.10.11.141/24 --> sabit ip adresi
+
+-- 11:30 - 12:30  
+Exa ram durumların,  630gb ram var .
+
+/*----------------------------------------------------
+🔴 POSTGRES KURULUMU 
+------------------------------------------------------
+⭕️ 1️⃣ Binary Files
+--------------------
+🌐 https://www.postgresql.org/download/ üzerinde işletim sistemize uygun postgres binary dosyalarını kurulumu gerçekleştirilir.
+
+
+/*
+
+# Import the repository signing key:
+sudo apt install curl ca-certificates
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+# Create the repository configuration file:
+. /etc/os-release
+sudo sh -c "echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main' > /etc/apt/sources.list.d/pgdg.list"
+
+# Update the package lists:
+sudo apt update
+
+# Install the latest version of PostgreSQL:
+# If you want a specific version, use 'postgresql-17' or similar instead of 'postgresql'
+sudo apt -y install postgresql
+
+*/
+
+
+Bir sunucuda postgres binary kurulumu ile  
+
+🌐 https://www.postgresql.org/docs/current/reference-client.html
+
+
+araç setlerine sahip oluyoruz. Postgres serverın kurulum, yönetim ve bakım vb ... işlemlerini bu araçlar ile gerçekleştiriyoruz.
+
+🔍 find / -iname pg_ctl 
+linux sunucu üzerinde bulunan postgres araç setlerini tespit edilebilir.
+
+
+-----
+🌐 https://www.postgresql.org/docs/current/glossary.html#GLOSSARY-DB-CLUSTER
+🌐 https://www.postgresql.org/docs/current/creating-cluster.html
+⭕️ 2️⃣ A database cluster / cluster (Postgres Server)
+--------------------
+
+🔸 Herhangi bir işlem yapmadan önce, diskte bir veritabanı saklama alanı oluşturmanız gerekir. Buna DATABASE CLUSTER (cluster) denir. (SQL standardında bu yapı “catalog cluster” olarak adlandırılır.)
+
+🔸Database Cluster, çalışan bir database server yönettiği birden fazla veritabanından oluşan bir yapıdır.
+
+🔸İlk kurulumdan sonra, bu kümeye postgres adında varsayılan bir veritabanı otomatik olarak eklenir. Bu veritabanı genellikle sistem araçları, kullanıcılar ve üçüncü parti uygulamalar tarafından kullanılır. Sunucunun çalışması için bu veritabanı zorunlu değildir, ancak birçok dış araç bu veritabanının var olduğunu varsayar.
+
+⚠️ Varsayılan olarak erişilen postgres veritabanının geliştirme için kullanılmaması önerilir. 
+
+
+🔸 Ayrıca, kurulum sırasında template1 ve template0 adında iki veritabanı daha oluşturulur. Bu veritabanları, ileride oluşturulacak yeni veritabanlarına şablon olarak kullanılır.
+
+✨ Örn. create database profelis; komutu ile  bu template veritabanlarını klonlamış oluruz. 
+
+
+🔸 Dosya sistemi açısından bakıldığında, bir DATABASE CLUSTER, verilerin saklandığı dizinden oluşur. "data directory" olarak postgres yönetim komutlarında bu dizinin konumu belirtilir. 
+
+pg_ctl -D data directory
+
+🔸 "Database CLuster" terimini postgres dökümanı içersinde gördüğümüzde yekpare postgres sunucusunu aklımıza gelmeli.  
+
+✨ Örn. pg_basebackup is used to take a base backup of a running PostgreSQL database cluster.
+pg_basebackup aracı ile yedek aldığımızda database cluster kopyasını almış oluruz. 
+
+----------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/app-initdb.html
+initdb — create a new PostgreSQL database cluster
+initdb — Yeni Bir PostgreSQL veritabanı kümesi oluşturma
+----------------------------------------------------------------
+
+🔸A database cluster is created using the "initdb" program.
+
+Veritabanı kümesi (Cluster), PostgreSQL sunucusunun yönettiği veritabanlarıyla ilgili tüm yapıların, kullanıcıların ve yönetimsel ayarların saklandığı dosyaların tamamını ifade eder.
+
+
+🌐 https://www.postgresql.org/docs/current/app-initdb.html
+🔍 find / -iname pg_ctl 
+ℹ️ /usr/lib/postgresql/17/bin/initdb --help komut satırında yada 
+https://www.postgresql.org/docs/current/app-initdb.html linki üzerinden komutun aldığı parametreler incelenebilir.
+
+/*
+🔸 -A authmethod
+
+initdb yürütüldüğünde pg_hba.conf içerisindeki authmethod ayarlanmasını sağlıyor. trust,md5,scram-sha-256 vb..
+
+
+🔸 -D directory , --pgdata=directory  💥💥💥
+Database cluster kurulacağı konumu belirtir.
+Sistemde PGDATA değişkeni ile environment variable tanımlanabilir. 
+
+🔸 -E encoding , --encoding=encoding 
+
+Selects the encoding of the template databases. This will also be the default encoding of any database you create later, unless you override it then. 
+
+CREATE DATABASE ... komutuyle template database klonlanmaktadır. Bu template database CHARACTER ENCODING dilini bu parametre ile tanımlanabilir. Varsayılan sistemin encoding ile aynıdır.
+
+örn: UTF-8
+
+ℹ️ Daha sonra, şablon veritabanı (template database) ve veritabanı oluşturma (CREATE DATABASE) adımında karakter kodlaması (encoding) değiştirilebilir.
+
+
+🔸 -k , --data-checksums 💥💥💥☢️☢️☢️
+🌐 https://www.postgresql.org/docs/current/checksums.html
+
+By default, data pages are not protected by checksums, but this can optionally be enabled for a cluster. When enabled, each data page includes a checksum that is updated when the page is written and verified each time the page is read. Only data pages are protected by checksums; internal data structures and temporary files are not.
+
+PostgreSQL'de varsayılan olarak veri sayfaları checksum ile korunmaz. Ancak initdb --data-checksums seçeneğiyle bu özellik etkinleştirilebilir. Etkinleştirildiğinde, her veri sayfasına bir checksum eklenir; sayfa yazıldığında güncellenir, okunduğunda doğrulanır. Bu özellik yalnızca veri sayfalarını kapsar; geçici dosyalar ve dahili yapılar korunmaz. Veri bozulmalarına karşı haberdar olmak için açık tutulması önerilir.
+
+*/*/
+
+select * from pg_stat_database ; --> istatistik tablosunda ortaya çıkan checksum failure takip edilebilir.
+
+/*
+🔸 --locale=locale 💥💥
+C.UTF-8 , tr_TR.UTF-8  , en_EN.UTF-8 vb tanımlamalar ile lokal dilin büyük/küçük harf eşlemesi, sıralama, alfabetik düzen vb.. uyum sağlar.
+
+C.UTF-8 multilanguage bir uygulama için kullanım
+tr_TR.UTF-8,en_EN.UTF-8 yerelleştirme gibi durumlarda seçilebilir.
+
+🔸 -W , --pwprompt 
+initdb komutu çalıştırıldığında başlangıçta oluşturulan süper kullanıcı için şifre girmenizi sağlar.
+
+initdb -D /pgdata -W 
+
+🔸 -X,  directory 💥💥
+--waldir=directory 
+This option specifies the directory where the write-ahead log should be stored.
+
+Postgres sunucusunda üretilen wal (Write ahead log ) dosyaların tutulacağı dizini tanımlayan parametredir. Varsayılan PGDATA içerisinde pg_wal dizini altındadır.
+
+ℹ️ pg_wal dizinin PGDATA dizininden farklı mountpoint tutulması önerilir.
+ℹ️ pg_wal dizini symbolik kullanılarak oluşturulmaktadır. Sonradan veritabanı durdurulması ile konumu değiştirebilir.
+
+🔸 -c name=value , --set name=value  💥
+
+postgresql.conf dosyasındaki bazı yapılandırma parametrelerinin kurulum sırasında belirlenmesine olanak tanır.
+
+-c logging_collector=on  -c  log_directory=/data/pg_log -c port=5433
+
+🔸 -V , --version
+
+Basit Kurulum Adımı
+
+/pgdata --direk datadizin kullnaılmalı
+
+
+/pgdata/pg17
+
+/pgdata/pg18
+
+
+-- Root kullanıcısında dizin tanımı gerçekleştirme ve yetkilendirme
+mkdir /data/simple_data
+chown postgres:postgres -R /data/simple_data
+
+*/
+-- postgres kullanıcısnda initdb komutunu yürütülmesi
+
+/usr/lib/postgresql/17/bin/initdb -D  /data/simple_data  -k  
+
+
+-- Komutunu yürütüldüğünde gerçekleşen işlemlerin dökümü.
+
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "en_US.UTF-8".
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are enabled.
+
+fixing permissions on existing directory /data/simple_data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Istanbul
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /data/simple_data -l logfile start
+
+
+/*--------------------------------------------------------------------
+🔴 Database File Layout
+🌐 https://www.postgresql.org/docs/current/storage-file-layout.html
+----------------------------------------------------------------------
+
+🔶 /data/simple_data DATABASE CLUSTER dizini altındaki oluşan dosyalar
+
+base	      pg_ident.conf  pg_serial	    pg_tblspc	postgresql.auto.conf
+global	      pg_logical     pg_snapshots  pg_twophase	postgresql.conf
+pg_commit_ts  pg_multixact   pg_stat	    PG_VERSION
+pg_dynshmem   pg_notify      pg_stat_tmp   pg_wal
+pg_hba.conf   pg_replslot    pg_subtrans   pg_xact
+
+🔶 Bir postgres dba etkileşimde bulanacağı dosyalar 
+🔸postgresql.conf  , server yapılandırma  💥💥💥
+🔸pg_hba.conf      , server firewall yapılandırma 💥💥💥
+🔸postgresql.auto.conf , server yapılandırma , sql istemci ile verilen komutlar  💥💥💥
+🔸pg_wal  , wal ve archive durumunu ilerlemesi hakkında bilgi için. 💥💥💥
+🔸base    , veritabanı  büyüklüğü bilgisi  💥💥
+🔸PG_VERSION , database cluster hangi versiyona ait kurulduğu bilgisi. 💥
+
+Data directory, Postgres serverı başlatıldığında görebileceğimiz dosyalar.
+
+🔸postmaster.pid , Postgres process, hangi pid , başlama zamanı, port vb .. bilgileri bulunur. Dizindeki postgres veritabanın çalışmadığını bu dosya ile anlayabiliriz.💥💥💥
+
+🔸standby.signal , sunucu recovery mod durumunda tutar , yazmaları kabul etmez.💥💥💥
+
+select * from pg_database;
+
+
+/usr/lib/postgresql/17/bin/pg_ctl start -D /data/simple_data 
+
+☢️ PostgreSQL Başlatılamıyor mu? postmaster.pid Dosyasına Dikkat!
+Bazı durumlarda, örneğin sunucu beklenmedik şekilde kapanırsa (crash), PostgreSQL’in çalışma durumu bilgilerini içeren postmaster.pid dosyası veri dizininde (data directory) kalabilir.
+🚫 Bu dosya dururken PostgreSQL tekrar başlatılamaz. Çünkü sistem hala başka bir postmaster sürecinin çalıştıyor diye yorumlar. 
+⚠️ Dikkat: Bu işlemi yapmadan önce PostgreSQL’in gerçekten çalışmadığından emin olun. Aksi takdirde veri kaybı riski doğabilir.
+*/
+
+1.Binary kurulumu (postgresql.org/downloads) 
+2.Database cluster dizini kurulumu (initdb)
+3.Database Server Başlatma (pg_ctl)
+
+/*----------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/app-pg-ctl.html
+🔴 pg_ctl — initialize, start, stop, or control a PostgreSQL server
+Bir Database CLusterını Başlatma
+----------------------------------------------------------
+
+🔶 -D ile hangi database clusterını yöneteceğini belirtiyioruz.
+
+/usr/lib/postgresql/17/bin/pg_ctl start -D /data/simple_data 
+
+
+  76  systemctl stop postgresql@17-main.service 
+   77  systemctl disable  postgresql@17-main.service 
+   78  systemctl disable  postgresql.service
+   79  systemctl stop   postgresql.service
+
+
+/usr/lib/postgresql/17/bin/pg_ctl start -D /data/simple_data 
+waiting for server to start....2025-05-13 09:20:45.152 UTC [6078] LOG:  starting PostgreSQL 17.5 (Ubuntu 17.5-1.pgdg24.04+1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, 64-bit
+2025-05-13 09:20:45.152 UTC [6078] LOG:  listening on IPv4 address "127.0.0.1", port 5432
+2025-05-13 09:20:45.153 UTC [6078] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2025-05-13 09:20:45.160 UTC [6081] LOG:  database system was shut down at 2025-05-13 09:04:23 UTC
+2025-05-13 09:20:45.177 UTC [6078] LOG:  database system is ready to accept connections
+ done
+server started
+
+
+/usr/lib/postgresql/17/bin/pg_ctl start -D /data/simple_data 
+pg_ctl: another server might be running; trying to start server anyway
+waiting for server to start....2025-05-13 09:21:18.275 UTC [6096] FATAL:  lock file "postmaster.pid" already exists
+2025-05-13 09:21:18.275 UTC [6096] HINT:  Is another postmaster (PID 6078) running in data directory "/data/simple_data"?
+ stopped waiting
+pg_ctl: could not start server
+Examine the log output.
+
+-- Şimdiye kadar öğrendiğimiz bilgileri nasıl kullanabiliriz .
+
+❓❓❓ Senaryo: Körlemesine bir sunucu verildi size burada postgres çalıştığı belirtildi. Postgres hangi dizinde kurulmuş ve çalışıyor ? Nasıl anlayacağız.
+❓❓❓
+
+⚠️ Bir Sunucuda Çalışan PostgreSQL Serverlarını (Instance) Tespit Etme
+
+Bir sunucuda kaç adet PostgreSQL veritabanı kümesi (cluster) çalıştığını görmek istiyorsak, bunun en pratik yollarından biri postmaster.pid dosyalarını aramaktır.
+
+
+🔍 find / -iname postmaster.pid 2>/dev/null
+
+/pgdata/postmaster.pid
+/data/simple_data/postmaster.pid
+
+Bu komut sayesinde hangi konumlarda pg_ctl start komutu ile başlatılmış veritabanı kümeleri olduğunu öğrenebiliriz.
+
+❓❓❓ Senaryo: Sunucu Crash oldu postgres başlamıyor. Bizede xxx serverında postgres başlatılması gerektiği iletildi.
+❓❓❓
+
+🔍 find / -iname pg_wal 2>/dev/null
+
+pg_ctl start -D data_directory
+
+*/* 
+
+-- özet:
+
+1.Binary kurulumu (postgresql.org/downloads) 
+2.Database cluster, dizini kurulumu (initdb)
+3.Database Server Başlatma (pg_ctl)
+/*
+------------------------------
+🔶 pg_ctl --help   💥💥💥
+
+pg_ctl, PostgreSQL veritabanı sunucusunu başlatmak, durdurmak, yeniden başlatmak, durumunu görmek gibi işlemler için kullanılan temel yönetim aracıdır.
+
+🔸 pg_ctl init[db]   [-D DATADIR] [-s] [-o OPTIONS]
+initdb komutunu yürütmek için. 
+
+data_dizinini başlatmak için.
+
+pg_ctl start -D /data_dizin
+
+
+🔸pg_ctl stop       [-D DATADIR] [-m SHUTDOWN-MODE] [-W] [-t SECS] [-s]
+🔸pg_ctl restart    [-D DATADIR] [-m SHUTDOWN-MODE] [-W] [-t SECS] [-s]
+                    [-o OPTIONS] [-c]
+
+Data_dizinin aktif çalışan postgres durdurmak / restart etmek için.
+
+pg_ctl stop -D /data_dizin
+pg_ctl stop -mi -D /data_dizin
+
+Options for stop or restart:
+  -m, --mode=MODE        MODE can be "smart", "fast", or "immediate"
+Shutdown modes are:
+  smart       quit after all clients have disconnected --
+  fast        quit directly, with proper shutdown (default) -- oracle immediatte
+⚠️immediate   quit without complete shutdown; will lead to recovery on restart -- oracle abort
+
+pg_ctl stop -mf -D /data_dizin
+
+
+PostgreSQL, immediate modu ile kapatıldığında veritabanı düzgün bir şekilde kapanmaz. Bu nedenle yeniden başlatıldığında, en son checkpoint noktasından itibaren WAL kayıtlarını (write-ahead log) okuyarak veri bütünlüğünü sağlar.
+
+Sunucu tamamen açıldığında log dosyasında şu satırı görürsünüz:
+Database system is ready to accept connections.
+
+🔸pg_ctl reload     [-D DATADIR] [-s]
+
+reload modu, PostgreSQL sunucu sürecine SIGHUP sinyali gönderir. Bu sinyal sayesinde PostgreSQL, yapılandırma dosyalarını (postgresql.conf, pg_hba.conf vb.) yeniden okur.
+
+Bu yöntemle, sunucuyu yeniden başlatmadan bazı yapılandırma ayarlarını değiştirmek mümkündür. 
+Yeniden başlatma gerektirmeyen ayarlar için geçerlidir.
+
+ℹ️ Postgresql.conf içersinde karşısında yorum olarak restart gerektiren paremetreler belirtilmiştir
+yada
+select * from pg_settings where pending_restart is true .  
+
+⚠️ PostgreSQL’i pg_ctl veya başka bir yöntemle başlatmadan önce, sistemin donanım kaynaklarına (RAM, CPU, disk tipi, I/O kapasitesi) göre postgresql.conf içindeki bazı temel parametrelerin optimize edilmesi gereklidir. Aksi halde PostgreSQL, varsayılan ayarlarla çalışacaktır ve bu da gerçek potansiyelinin çok altında performans anlamına gelir.
+*/
+
+postgres server yapılandırma
+/*--------------------------------------------------------------------
+🔴 Postgresql.conf Server Yapılandırma 
+🌐 https://www.postgresql.org/docs/17/runtime-config.html
+----------------------------------------------------------------------
+Postgres Server yapılandırmasını, data directory bulunanan postgresql.conf üzerinden gerçekleştirilir.
+
+
+#------------------------------------------------------------------------------
+# CONNECTIONS AND AUTHENTICATION
+#------------------------------------------------------------------------------
+
+🌐https://www.postgresql.org/docs/17/runtime-config-connection.html
+🔶 Bağlantı Ayarları
+# - Connection Settings -
+💥#listen_addresses = 'localhost'         # what IP address(es) to listen on;
+                                        # comma-separated list of addresses;
+                                        # defaults to 'localhost'; use '*' for all
+                                        # (change requires restart)
+
+ℹ️ listen_addresses, hangi internet bacağından erişim sağlancak ise onları belirtilmelidir. *
+ile tüm internet bacakları üzerinden erişim olacaktır.
+
+💥#port = 5432                            # (change requires restart)
+
+💥max_connections = 100                   # (change requires restart) 
+#max_connection postgres kaç adet bağlantı kabul edeceğini belirler
+#GREATEST(4 x CPU cores, 100)
+ℹ️Yüksek bağlantı sayıları ihtiyaç duyuluyor ise. pooling yapısı kurgulanmalı
+
+#reserved_connections = 5               # (change requires restart)
+
+alter role kullanıcı with resevered;
+
+#superuser_reserved_connections = 3     # (change requires restart)
+# superuser rolüne sahip kullanıclar ayrılan slot
+select * from pg_roles;
+# ☢️ Herkes superuser rolünde ise bu reserved slotların anlamını olmayacaktır ☢️
+
+# - Authentication -
+
+#authentication_timeout = 1min          # 1s-600s
+#kimlik doprulamasını gerçekletirmek gereken maksimum süre.
+#password_encryption = scram-sha-256    # scram-sha-256 or md5
+#kullanıcalara tanımlama parolaların şifrelemede kullanılacak enrpytion metodunu
+create role profelis with password 'profelis';
+select * from pg_shadow;
+
+#------------------------------------------------------------------------------
+# RESOURCE USAGE (except WAL)
+#------------------------------------------------------------------------------
+
+# - Memory -
+tablo indekslerin cahcelendiğini memory alanın limiti
+
+shared_buffers = 128MB                  # min 128kB  🎯 perfomans
+
+                                        # (change requires restart)
+#ℹ️ ramin %25-%40 arasında optimal değer verilebilir.
+
+💥 Tablo istatisteklerinde seq_scan yoğunluk var ise bu parametrenin artırılması,  donanımsal olarak rami yükseltmek sorgu perfomanslarına büyük etki edecektir.💥
+
+#huge_pages = try                       # on, off, or try
+
+ℹ️ 512GB > büyük ramlere sahip sunucularda kullanımı ayarlanması düşünülebilir.. linux üzerinde huge_pages ayarların yapılması gerekiyor. veritabanı boyutu , shared_buffer sığmadığı durumlarda.
+
+                                        # (change requires restart)
+#huge_page_size = 0                     # zero for system default
+                                        # (change requires restart)
+#temp_buffers = 8MB                     # min 800kB
+
+ℹ️temp table kullanımı için ramde allacote edilecek maximum alanı belirtiyor aşması durumunda diske yazılacaktır.
+temp table kullanımı olan sorgularda sorgu özelinde yükseltilmesi önerilir.
+
+?? Oracle tablespaces  
+
+🚨 Ram hesaplaması yapılırken en kötü durumda maximum bu alanın kullanılacağı durum düşünülmelidir.
+connection sayısı * temp_buffer + shared_buffer < ram size 
+☢️ out of memory dolayı postgres kill olarak production ortamının kesintiye uğraması sonuçlanacaktır. ☢️
+
+#work_mem = 4MB                         # min 64kB 🎯 sorgu perfomansı
+ℹ️ Sort operations are used for ORDER BY, DISTINCT, and merge joins. Hash tables are used in hash joins, hash-based aggregation, memoize nodes and hash-based processing of IN subqueries.
+
+Sorgularımızda bu operasyonları kullanıyor isek bu parametreyi sesion bazı ayarlamanız önerilir.
+☢️postgres process özelinde allocate edebilir. 100*4mb=400mb, 1GB verdiğimiz durumda 100*1GB
+=100Gb kullanılabilir duruma gelebilir.☢️
+
+💥Fazla veri yorumlayan sorgularda bu parametre arttırlması önerilir.
+Sorgunun work_mem ihtiyaçını explain analyze komutu ile yada pg_stat_statements
+eklentisi üzerinden takip edileiblir💥
+
+alter system work_mem
+
+alter role rapor_kullanicis to   work_mem='1GB' connection 10; 
+begin       work_mem
+
+#hash_mem_multiplier = 2.0              # 1-1000.0 multiplier on hash table work_mem
+# hash bazlı sorgu planlarında daha fazla memory kullanımı sağlamak için.
+
+#maintenance_work_mem = 1GB            # min 64kB
+ℹ️ bakım işlemlerin daha hızlı tamamlanması için yükseltilmesi düşünülmeli.
+16 dan önce 1GB yükseltiymiyor . 16-17 , 4GB 
+
+#autovacuum_work_mem = 128MB               # min 64kB, or -1 to use maintenance_work_mem
+otomatik bakim işlemlerinde autovacuum 
+
+#vacuum_buffer_usage_limit = 2MB   # size of vacuum and analyze buffer access strategy ring;
+
+ℹ️ yeni gelen bir özellik. vacuum gerçekleşirken tablo taramasının ne kadar büyüklükte bir buffer pencresinde gerçekleşiğini belirler. Shared buffer içerisinde. 
+
+Vacuum sürecini bu parametrenin ⬆️ hızlandırır ⬇️ yavaşlatır .
+
+.bakım işlemelerin hızlı tamamlanması için bir miktar yükseltilmesi shared_buffer göre düşünebilir.
+
+If the specified size would exceed 1/8 the size of shared_buffers,
+
+# - Cost-Based Vacuum Delay -
+ℹ️ vacuum process ince ayarı
+#vacuum_cost_delay = 0                  # 0-100 milliseconds (0 disables)
+ℹ️ manuel vacuum süreçinde sürekli bir I/O baskısı ile çalışmaktadır. autovacuum süreclerinde kesikli I/O süreci yürütülüyor. 
+ℹ️ çok kötü durumda disklere sahip ise, vacuum_cost_delay ile disk üzerindeki baskı azaltılabilir.
+#vacuum_cost_page_hit = 1               # 0-10000 credits
+#vacuum_cost_page_miss = 2              # 0-10000 credits
+#vacuum_cost_page_dirty = 20            # 0-10000 credits
+#vacuum_cost_limit = 200                # 1-10000 credits
+
+# - Background Writer -  
+shared_buffer da bulunan dirty_buffer (update,delete,insert işlemleri) diske yazılması.
+
+#bgwriter_delay = 20ms                 # 10-10000ms between rounds
+#bgwriter_lru_maxpages = 1000            # max buffers written/round, 0 disables
+bir uyanmada
+#bgwriter_lru_multiplier = 4.0          # 0-10.0 multiplier on buffers scanned/round
+5 page temizledim, 200ms uyudum geldiğimde 5*2 10 tane temizlyece
+10*bgwriter_lru_multiplier, 20 tane  <  bgwriter_lru_maxpages 1000
+
+#bgwriter_flush_after = 512kB           # measured in pages, 0 disables
+
+ℹ️ 1xpage= 8kb,  maksiumum 100 page (veri bloğu) (bgwriter_lru_maxpages )  diske yazımı gerçekleşiyor. 100*8kb 
+
+select pg_Size_pretty(100*8096::numeric)
+
+*/
+
+küçük setler , bgwirter disk üzerinde  1gb 10sn , 1sn 
+büyük setler , sorgu perfmansını olumsuz etkiliyor. 
+ 
+select 'Bir turda maksiumun '||pg_size_pretty(bgwriter_lru_maxpages*"1 saniye içersinde tetiklenme"*8096::numeric) || '/s disk veri yazımı '
+from (
+select  --100 bgwriter_lru_maxpages , 1000/200 "1 saniye içersinde tetiklenme"
+--yeni ayarlarım
+200 bgwriter_lru_maxpages , 1000/20 "1 saniye içersinde tetiklenme"
+) t1 
+
+select * from pg_stat_bgwriter --> maxwritten_clean sayısı artışta ise , dirty buffer temizleme işi yavaş kalıyordur.
+-- ☢️bgwriter çok yavaş kaldığı durumlarda sorgu perfomanslarında ara ara, hiç yetişemediği durumda  keskin şekilde sorgularda yavaşlama görülür.☢️ 
+
+/*
+#effective_io_concurrency = 1           # 1-1000; 0 disables prefetching
+ℹ️ disk donanımı paralel i/o gücüne göre ayarlanmalı, modern ssd diskler için 200 iyi başlangıç noktasıdır. seq taramalarda disk taramaları hızlanmasında.
+
+# - Worker Processes -
+#max_worker_processes = 32               # (change requires restart)
+ℹ️ server cpu sayısına bağla artılabilir. bu havuzdan background processlerde yararlanıyor.
+
+#max_parallel_workers_per_gather = 8    # limited by max_parallel_workers
+ℹ️ aynı anda çalışacak paralel işlem süreci
+ℹ️ bu parametreyi 0 yapmak paralel sorgu çalışmasını kapatır.
+
+#max_parallel_workers = 32		# number of max_worker_processes tha
+# can be used in parallel operations
+
+#max_parallel_maintenance_workers = 2   # limited by max_parallel_workers 
+ℹ️ bakım işlemlerinde aynı anda iki indexe reindex atılması sağlar.
+
+#parallel_leader_participation = on
+☢️ parallel artığı durumda work_mem, maintenance_workmem değerleri çarpan olarak artacaktır.☢️
+work_mem 10mb,  bir sorgumda 5 paralelik , bu paralelleri 10mb , 50mb
+
+ACID
+
+#------------------------------------------------------------------------------
+# WRITE-AHEAD LOG
+#------------------------------------------------------------------------------
+-- oralce redo log 
+https://www.postgresql.org/docs/17/runtime-config-wal.html
+
+# - Settings -
+#wal_level = replica                    # minimal, replica, or logical
+                                        # (change requires restart)
+
+ℹ️replica ve logical yapılmayacak ise minamal yapmak yararlı olur. 
+wal üzerinde replica ve logical replikasyon için gerekli igller ekliyor.
+soldan -> sağa detaylı wal dosyaları yazılır.
+
+
+#synchronous_commit = on                # synchronization level;
+                                        # off, local, remote_write, remote_apply, or on
+										
+https://www.percona.com/blog/wp-content/uploads/2020/08/sychronous_commit-1.png
+ℹ️ on durumunda kalması default olarak yeterlidir. replika edilen nodelarda sorgularda veri sekron gelmesi şartı aranıyor ise remote_apply ile wal dosyasının replikada oynatılması beklen
+
+remote_write , replikaya yazıldığın eminiz 
+postgres recovery.  
+remote_apply,  replika üzerinde wal dosyasının oyantıldığından eminim.
+
+
+#wal_buffers = -1                       # min 32kB, -1 sets based on shared_buffers
+                                        # (change requires restart)
+ℹ️  shared_buffer/32 denk geliyor default ayarda.
+16mb-64mb arasında ayarlanması tavsiye edilir.  
+
+#wal_writer_delay = 200ms               # 1-10000 milliseconds
+#wal_writer_flush_after = 1MB           # measured in pages, 0 disables
+#wal_skip_threshold = 2MB
+#commit_delay = 0                       # range 0-100000, in microseconds
+#commit_siblings = 5                    # range 1-1000
+
+# - Checkpoints - checkpointer process  
+
+#checkpoint_timeout = 5min              # range 30s-1d
+ℹ️ son checkpoint üzerinden bu kadar süre geçince tetiklenir.
+#checkpoint_completion_target = 0.9     # checkpoint target duration, 0.0 - 1.0
+#checkpoint_flush_after = 256kB         # measured in pages, 0 disables
+#checkpoint_warning = 30s               # 0 disables
+max_wal_size = 50GB -- 
+ℹ️ son checkpoint noktasından sonra yazılan wal boyutu max_wal_size aştığından tetiklenir. Bu boyuttan fazla wal dosyaları sisteme iade edilir. hard limit değildir. bu parametreden daha fazla wal tutulabilir dizinde❗️
+ℹ️ checkpoint_timeoutdan tetiklenecek şekilde artırılması önerilir.
+
+min_wal_size = 1GB , 16mb  en az 5 pg_Wal dosyası bulunacaktır.
+
+ℹ️ oluşan wal dosyaları bu değerin altına düşmez işletim sisteminde yeni dosya oluşturma talebinin azaltır
+
+# - Archiving -
+
+#archive_mode = on             # enables archiving; off, on, or always
+                                # (change requires restart)
+☢️ bu parametre açıldığında wal dosyaları rotasyona uğraması için archive sürecinin başarılı ilerlemesi lazım aksi durumda pg_wal diski dolduracaktır.☢️
+
+#archive_library = ''           # library to use to archive a WAL file
+                                # (empty string indicates archive_command should
+                                # be used)
+#archive_command = '/bin/bash'           # command to use to archive a WAL file
+                                # placeholders: %p = path of file to archive
+                                #               %f = file name only
+                                # e.g. 'test ! -f /mnt/server/archivedir/%f && cp %p /mnt/server/archivedir/%f'
+								
+ℹ️ ortamda archive mode kullanımı düşünüyorlar ise ileride restart atmamak için
+
+
+
+#------------------------------------------------------------------------------
+# QUERY TUNING
+#------------------------------------------------------------------------------
+
+# - Planner Cost Constants -
+
+#seq_page_cost = 1.0			# measured on an arbitrary scale
+#random_page_cost = 4.0                 # same scale as above
+ℹ️ güzel ssd var ise 1.2 - 1.5 arası değiştirilebilir. 
+
+#effective_cache_size = 4GB
+ℹ️ (total_system_ram - shared_buffer)*%95 şeklinde ayarlanır.
+%25 shared_buffer + %75 effective_cache_size = %100 total ram
+effective_cache_size⬇️ seq_scan ⬆️ index_scan
+
+Sistemde kullanılabilir ram miktarını anlamsına yardımcı oluyor bu limiti zorlamıyor.
+
+#------------------------------------------------------------------------------
+# REPORTING AND LOGGING
+#------------------------------------------------------------------------------
+
+# This is used when logging to stderr:
+#logging_collector = off		# Enable capturing of stderr, jsonlog,
+					# and csvlog into log files. Required
+					# to be on for csvlogs and jsonlogs.
+					# (change requires restart)
+					
+ℹ️ on konuma getirilmesi önerilir pgdata -> log dizini altında loglar toplanır
+
+
+#log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'        # log file name pattern,
+                                                        # can include strftime() escapes
+ℹ️ çok küçük log parçaları olmaması için günlük yapılabilir.								'postgresql-%Y-%m-%d.log'  
+
+Aynı isimde log dosyası olduğunda eski dosya silinerek. yeni isimle yazılır.
+log rotasyonu için sağlamak için 
+
+'postgresql-%Y-%m-%d.log'   -> 'postgresql-%m-%d.log'  ayarlanabilir. senelik dönğü olacaktır.
+'postgresql-%a.log' -> mon,thu .. sat bir haftalık dönğüde loglar tutulacaktır.
+
+#log_min_duration_statement   (yavaş çalışan sorgu tespiti için)
+ℹ️ veritabanında belirtilen değerden uzun süren sorguların loga düşmesi istendiği durumda 
+örn 5dk uzun süren sorguların tespitinde kullanılabilir.
+
+Sorgu ortalamaları pg_stat_statemets , kümülatif 
+
+⚠️Veritabanında çalışan sorgu ortalamasın altında bir değer ayarlanması durumunda sorguların çoğunluğu loga düştüğü görülebilir. Kademeli olarak sorgular iyileştirildikçe azaltılması tavsiye edilir.
+
+-- pg_audit konusu, imperva !!!
+-- log ddl dml konusu 
+
+#log_checkpoints = on  
+ℹ️ açık olması tavsiye edilir checkpointlerin zamandan tetiklendiğinin takibi için
+
+#log_connections = off
+#log_disconnections = off
+
+ℹ️ gelen ve kapan connectionların takipi için önemli çok sık connection açıp kapanma durumu var ise bağlantı sağlayan tarafın pooling ile gelmesi tavsiye edilmelidir.
+
+#log_line_prefix 
+
+ℹ️ log kaydında hangi ek bilgilerinin olacağını belirlemede
+'%h %u %m [%p]
+
+#log_lock_waits=off 
+ℹ️lock durumuna düşen sorguları tespit etmek için
+
+#log_statement none, ddl, mod, all  
+DDL,alter,create, drop statements
+Mod,delete,update,truncate,insert,copy,execute and prepare
+all tüm aksiyonları loga düşmesi sağlanır.
+
+ℹ️  çalışan sorguların loga düşmesi istendiği durumda
+
+#------------------------------------------------------------------------------
+# CLIENT CONNECTION DEFAULTS
+#------------------------------------------------------------------------------
+
+https://www.postgresql.org/docs/current/tutorial-transactions.html
+#zaman aşımı ayarları
+#statement_timeout = 0                          # in milliseconds, 0 is disabled
+ℹ️ Değerden uzun sorguların cancel olması için
+❗️ERROR:  canceling statement due to statement timeout
+ℹ️ bu değerin ayarlanması veritabanı üzerinde ve uzun süre çalışan sorguların birikmesini engelleyerek sistemin tıkanmasını önlemeye yardımcı olacaktır.
+#transaction_timeout = 0                        # in milliseconds, 0 is disabled
+ℹ️ Değerden uzun süren sorgu blokların cancel olması için 
+
+#lock_timeout = 0                               # in milliseconds, 0 is disabled
+ℹ️lock durumunda kalan sorgu iptal olması için
+❗️ERROR:  canceling statement due to lock timeout
+
+#idle_in_transaction_session_timeout = 0        # in milliseconds, 0 is disabled
+ℹ️ açık transaction bloğunda işlem yapmadan bekleyen
+❗️ERROR:  terminating connection due to idle-in-transaction timeout
+☢️ uzun süre bu durumda kalan sorgular veritabanını snapshotını tutacağında vacuum işlemlerin sağlıklı yapılmasını tıkayabilir.
+☢️ pooling uygulamasının bu durumdan haberder olmalı bu durum gerçekleştiğinde tekrardan pooling connection sağlamalı.
+
+#idle_session_timeout = 0                       # in milliseconds, 0 is disabled
+ℹ️ boşta bekleyen connectionların 
+❗️ERROR:  terminating connection due to idle session timeout
+☢️ Be wary of enforcing this timeout on connections made through connection-pooling software or other middleware, as such a layer may not react well to unexpected connection closure. It may be helpful to enable this timeout only for interactive sessions, perhaps by applying it only to particular users.
+☢️ pooling uygulamasının bu durumdan haberder olmalı bu durum gerçekleştiğinde tekrardan pooling connection sağlamalı.
+
+⭕️Uzun süren sorgunun iptali için
+transaction_timeout 
+statement_timeout
+lock_timeout
+⭕️Uzun süre duran bağlantının düşümesi için
+idle_session_timeout (sorgu çalışmıyor ve boşta bekliyor ise)  ☢️
+idle_in_transaction_session_timeout (sorgu çalışıyor olsa bile)☢️
+
+# - Locale and Formatting 
+
+#datestyle = 'iso, mdy'  
+ℹ️ date tipinde verinin görünümü ay-gün-yıl
+
+*/
+
+show datestyle;
+
+select '12-31-2021'::Date 
+select '31-12-2021'::date  ⚠️ hata verecek mdy formatında değil
+Çalışacak uygulamalar yada geliştirme yapan kişilerin bu durumun farkında olmalı.
+
+türkiye standartlatında dmy , #datestyle = 'iso, mdy'  
+
+begin;
+set datestyle = 'iso,dmy';
+
+/*
+# - Shared Library Preloading -
+#shared_preload_libraries = 'pg_stat_statements'          # (change requires restart)
+ℹ️ pg_stat_statement ortamlarınızda eklenmesi önerilir. Sorgu perfomansı takibi.
+
+09:30 - 10:30
+11:00 - 12:00
+
+14:00- 15:00
+15:30 -16:30
+
+
+
+1️⃣Postgresql servera değişikliğin geçerli olması yeniden başlatılması gereken parametreler
+ # (change requires restart) olarak belirtilmiş.
+
+pg_ctl restart -D datadizin
+
+Geri kalan değişiklerde reload atılması yeterli olacaktır.
+cmd -> pg_ctl reload -D datadizin
+sql -> select pg_reload_conf();
+
+alter system set work_mem to '200MB';
+select pg_reload_conf();
+show work_mem ;
+select * from pg_settings   where name like '%work_mem%';
+
+
+alter  system set shared_buffers to '5GB';
+select pg_Reload_Conf();
+select * from pg_settings where pending_restart is true ; 
+
+-- planalama yaaprken etkilenen parametlrei görmek için 
+
+
+16:30 
+
+
+
+
+Eğitimler hafta içi 09:30-10:30 / 11:00-12:00 ve 14:00-15:00 /15:30-16:30 saatleri arasında gerçekleşecektir.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+										
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
