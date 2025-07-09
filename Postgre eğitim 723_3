@@ -1,0 +1,1363 @@
+
+disk datalarım data_pagelerde tutuylor,   değişikliğine uğradığında , dirty_page olarak
+shared_buffer -> dirty_buffer  
+mvcc -> update/delete işlemleri sonucu dead_tuple oluşturuyor.  
+dead_tupların temizleme işlemi , tekrarda kullanıma açılması -> vacuum
+vacuum sonucu çok fazla tablo tarafında kullanımayacak tutuyorsa tablomuz -> bloat durumunu oluştuyordu.
+
+*** vacuum full bloat giderbiliyorduk. ACCESS EXCLUSIVE  alıyor, okume / yazma engelleniyor.
+
+vacuum  table_name --> tabloda dead_tuple tekrardaz insert/update  için kullanıma açılıyor.okuma yazma engellenmiyor.
+
+
+/*
+⭕️ Updating Planner Statistics
+
+The PostgreSQL query planner relies on statistical information about the contents of tables
+in order to generate good plans for queries.
+These statistics are gathered by the ANALYZE command,
+which can be invoked by itself or as an optional step in VACUUM.
+It is important to have reasonably accurate statistics, 
+otherwise poor choices of plans might degrade database performance.
+
+🔸 Postgres verileri diskte "HEAP TABLE" metodu olarak tuttuğu için veriler disk bloğında rastgele olarak dağılmış haldedir. Sorgu planyıcısın aranan veriye en uygun erişimi yolunu belirler iken tabloya ait istatiksel bilgilerin güncel olması , sorgu perfomansı çalışması için önemlidir.
+
+*/
+select * from pg_stats where schemaname = 'public' --> tablolara ait istatistik  bilgileri görmek istediğimizde💥💥💥
+select * from pg_Statistic  --> tablo/index , kolon seviyesinde ait istatiksel bilgileri incelenmek 
+
+/*
+Autovacuum işlemi, autoanalyze işlemini gerçekleştirmektedir. Büyük güncelleme yapılmış ise tablo üzerinde autovacuum beklemek yerine manuel olarak ANALYZE table_name yürütülebilir.
+
+/*-------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/sql-analyze.html
+⭕️ ANALYZE Komutu
+-------------------------------------------------------
+
+ANALYZE, veritabanındaki tabloların içerikleri hakkında istatistikler toplar 
+ve bu verileri `pg_statistic` sistem kataloğunda saklar. 
+Daha sonra sorgu planlayıcısı (query planner), sorgular için en verimli 
+yürütme planını oluştururken bu istatistiklerden faydalanır.
+
+*/*/
+-- Örnek kullanım:
+ANALYZE test_analyze (c1); -- Sadece "c1" kolonu için istatistik toplar
+
+
+TRUNCATE TABLE test_analyze;
+CREATE TABLE test_analyze (c1 int);
+
+INSERT INTO test_analyze 
+SELECT generate_series(1, 1000000);
+
+INSERT INTO test_analyze 
+SELECT generate_series(1000001, 2000000);  -- 1 milyon satır daha ekleniyor
+
+-- Şu anda ölü (dead) satır yok:
+SELECT n_dead_tup 
+FROM pg_stat_user_tables 
+WHERE relname = 'test_analyze';  -- Beklenen: 0
+
+-- Plan çıktısını daha sade görebilmek için paralel çalışmayı kapatıyoruz
+SET max_parallel_workers_per_gather = 0;
+
+
+-- Toplam satır sayısını sorguluyoruz
+EXPLAIN 
+SELECT count(*) FROM test_analyze;
+
+-- Plan:
+-- Aggregate  (cost=37059.38..37059.39 rows=1 width=8)
+--   ->  Seq Scan on test_analyze  (cost=0.00..31417.50 rows=💥2256750💥 width=0)
+
+-- Tablodaki tüm verileri siliyoruz
+DELETE FROM test_analyze; --> dead tuple
+--truncate test analyze; --> gerçekten silinmiş oluyor. 
+
+-- Sorgu planı hala tabloda yaklaşık 2 milyon satır olduğunu varsayıyor
+EXPLAIN 
+SELECT count(*) FROM test_analyze;
+
+-- Plan:
+-- Aggregate  (cost=37059.38..37059.39 rows=1 width=8)
+--   ->  Seq Scan on test_analyze  (cost=0.00..31417.50 rows=2256750 width=0)
+
+-- ANALYZE komutunu çalıştırarak istatistikleri güncelliyoruz
+ANALYZE test_analyze;
+
+-- Sorguyu tekrar çalıştırıyoruz
+EXPLAIN 
+SELECT count(*) FROM test_analyze;
+
+-- Yeni plan:
+-- Aggregate  (cost=8850.00..8850.01 rows=1 width=8)
+--   ->  Seq Scan on test_analyze  (cost=0.00..8850.00 rows=💥1💥 width=0)
+-- Artık planlayıcı tablonun boş olduğunu biliyor
+
+
+
+-- ⭕️  Updating the Visibility Map 
+
+/**
+Vacuum maintains a visibility map for each table to 
+keep track of which pages contain only tuples that are known 
+to be visible to all active transactions (and all future transactions, 
+until the page is again modified). 
+
+This has two purposes. 
+First,  vacuum itself can skip such pages on the next run, since there is nothing to clean up.
+Second, it allows PostgreSQL to answer some queries using only the index, 
+without reference to the underlying table
+
+
+🔸 VACUUM işlemi gören her tablo için bir Visibility Map (görünürlük haritası) tutulur.
+Bu VM dosyasında, her veri sayfasının (data page) içeriğinde yer alan tuple'ların, tüm işlemler (transactions) tarafından görünür olup olmadığını takip eder.
+
+
+🔸 Eğer sayfadaki tüm tuple'lar tüm transactionlar için görünür durumdaysa, ilgili sayfa Visibility Map üzerinde 1 olarak işaretlenir.
+
+🔸 Eğer sayfada yakın zamanda değiştirilmiş veya silinmiş (yani görünürlüğü sınırlı) tuple'lar varsa, bu durumda sayfa 0 olarak işaretlenir.
+
+Bu mekanizma sayesinde:
+🔸 VACUUM, bir sonraki çalışmasında 1 olarak işaretli sayfaları atlayarak daha hızlı çalışır.
+ℹ️ Vacuum uğrama sıklığı fazla ise tablodaki bakım işlemi kısa sürecektir.
+🔸 İndeks üzerinden ulaşılan verilerde tabloya erişim olmadan hızlıca dönüş sağlanır. random I/O işlemi daha az gerçekleşir.  index-only-scans
+
+🌐 https://www.postgresql.org/docs/current/indexes-index-only-scans.html -- daha detaylı inceleme
+
+show data_directory;
+
+-- bir tablodaki visible map durumunu görmek için pg_class tablosundan yararlanabiliriz.relallvisible kolonu kaç edet data_pages görünür durumda olduğunun adet bilgisi tutuyor.
+*/
+select n.nspname AS schema_name, relname,reltuples::bigint,relpages,relallvisible 
+from pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid
+where relkind='r' and n.nspname='public'  order by relallvisible desc  limit 100;
+
+
+index-only-scan örn ek üzerinden görelim
+-- drop table test_index_only_scan ; 
+create table test_index_only_scan (c1 int) ;
+create index on  test_index_only_scan   (c1);
+
+select n.nspname AS schema_name, relname,reltuples::bigint,relpages,relallvisible 
+from pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid
+where relkind='r' and relname='test_index_only_scan' 
+order by relallvisible desc  limit 100
+
+insert into test_index_only_scan select generate_Series(1,1_000_000);
+
+select n.nspname AS schema_name, relname,reltuples::bigint,relpages,relallvisible 
+from pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid
+where relkind='r' and relname='test_index_only_scan' 
+order by relallvisible desc  limit 100
+
+-- relallvisible It is updated by VACUUM, ANALYZE, and a few DDL commands such as CREATE INDEX.
+
+explain  --> sorgu planını çıkartıyor.
+analyze  --> sorguyu gerçekten çalıştıyor
+select c1  from test_index_only_scan where c1 =500001
+
+Bitmap Heap Scan on test_index_only_scan  (cost=199.88..9662.91 rows=11284 width=4) (actual time=0.036..0.046 rows=2 loops=1)
+  Recheck Cond: (c1 = 500001)
+  Heap Blocks: exact=2
+  ->  Bitmap Index Scan on test_index_only_scan_c1_idx  (cost=0.00..197.06 rows=11284 width=0) (actual time=0.023..0.025 rows=2 loops=1)
+        Index Cond: (c1 = 500001)
+Planning Time: 0.072 ms
+Execution Time: 0.074 ms
+
+-- beklendiği  gibi index yöneliyor.
+
+
+vacuum verbose test_index_only_scan ;
+
+
+select n.nspname AS schema_name, relname,reltuples::bigint,relpages,relallvisible 
+from pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid
+where relkind='r' and relname='test_index_only_scan' 
+order by relallvisible desc  limit 100 --> relpages 4425, relallvisible 4425 
+
+
+explain analyze 
+select c1  from test_index_only_scan where c1 =500001
+
+Index Only Scan using test_index_only_scan_c1_idx1 on test_index_only_scan  (cost=0.42..143.93 rows=5000 width=4) (actual time=0.013..0.016 rows=1 loops=1)
+  Index Cond: (c1 = 500001)
+  Heap Fetches: 0
+Planning Time: 0.088 ms
+Execution Time: 0.032 ms
+
+VM tablosunun güncelliği indexlerimi , sorgularımızı index-only-scan yönelendiriyordur.
+500001,  1 - 100 , 500 - 600 -> tablo üzerinde data_pages kontrol etmesi data_pages
+
+🎯 index-only-scan yönelimi sağlanması veriye en hızlı erişim yöntemidir. Sorgularımızı bu şekilde yönelim olması için tablo üzerinde indeks yapılandırması ve bakım işlemleri yakından takip edilebilir.
+
+/*
+-- ⭕️  Preventing Transaction ID Wraparound Failures 
+
+Bakım işlemleri sağlıklı yürüyen bir veritabanında bu sorun ile karşılaşılmaz. 
+Ama uzun süre askıda kalan bağlantılar ve hiç vacuum freeze görmeyen tablolarda 
+bu sorun ile karşılaması mümkün olabilir.
+
+-- https://www.postgresql.org/docs/current/functions-info.html
+-- txid anlatımı
+*/
+begin;
+select txid_current();--> transaction yaptığımızda 
+
+select txid_current_snapshot() ; --> veritatının sahip olduğumuz versiyonu
+
+create table test1 (c1 int);
+insert into test1 values (1);  --> xmin değerin transaction başında almış olduğum id
+
+select xmin,xmax,* from test1; --> xmin değerin transaction başında almış olduğum id
+insert into test1 values (1); 
+select xmin,xmax,* from test1;
+
+commit;
+
+/*
+
+PostgreSQL'in MVCC (Multi-Version Concurrency Control) yapısı, satırların görünürlüğünü belirlemek için işlem kimlikleri (XID) arasında karşılaştırma yapar.
+
+Bir satırın xmin değeri (eklenme XID'si), mevcut işlemin XID’sinden büyükse, bu satır gelecekte yazılmış olarak kabul edilir ve işlem tarafından görünmez olur.
+
+Ancak PostgreSQL'de işlem ID’leri 32 bit ile sınırlıdır ve yaklaşık 4 milyar işlemden sonra sayaç sıfırlanarak yeniden başlar (wraparound).
+
+Bu durumda, geçmişte yazılmış bazı satırların XID’leri yeni XID ile kıyaslandığında gelecekteymiş gibi görünür ve bu satırlar sorgularda görünmez hale gelir.
+
+📌 Bu bir veri kaybı değildir, ama erişilemeyen veri anlamına gelir.
+
+ÖRn. başa döndüğü durumda  1000 txid alarak başlttığımız bir sorguda, daha önce 1000 den büyük txid yapılan satırları. 150000 (txid_row) < 150000 (txid_current). Buda veriler silinmiş gibi algılanmaya yol açacaktır.
+
+-- 🔶 FREEZE Nedir? – PostgreSQL'de Satırları Kalıcı Olarak Görünür Kılmak
+
+ℹ️ The reason that periodic vacuuming solves the problem is that VACUUM will mark rows as frozen.
+
+Bu sorun vacuum işleminin satıları "frozen" olarak işaretlemesi önüne geçilir. 
+"frozen" tuplelar her zaman görünür durumdadır. txid karşılaştırmasına girmezler.
+
+-- relfreozenxid en son ne zaman freeze işlemi olmuş
+select relname,relminmxid,relfrozenxid,
+age(relfrozenxid)::text::bigint as age   -- freeze işlemi gören tablonun yaşı 0 lanır.
+from pg_class order by relfrozenxid::text::bigint desc limit 5 
+*/
+
+create table test_freeze (c1 int);
+insert into test_freeze select generate_series(1,1_000_000);
+
+select xmin, * from test_freeze limit 100
+
+select relname,relminmxid,relfrozenxid,
+age(relfrozenxid)::text::bigint as age   --  tablonun yaşı 1 
+from pg_class where relname='test_freeze' order by relfrozenxid::text::bigint desc limit 5 
+
+vacuum freeze test_freeze ; --> yaşı 0 lanacaktır.
+
+select relname,relminmxid,relfrozenxid,
+age(relfrozenxid)::text::bigint as age   --  tablonun yaşı 0 
+from pg_class where relname='test_freeze' order by relfrozenxid::text::bigint desc limit 5 
+
+/*
+🎯 vacuum yada autovacuum işlemi sırasında belirli bir eşik aşıldığında ek olarak freeze komutu ile birlikte tetiklenir satıları frozen durumuna getirir.
+
+*/
+-- bu limitlere bakacak olursak
+select name,setting,short_desc from pg_settings 
+where (name like '%freeze%' or name like '%failsafe%')
+and  name like '%vacuum%' and name not like '%xact%'  
+order by name ;
+
+--vacuum_freeze_min_age	50_000_000	Minimum age at which VACUUM should freeze a table row.
+--https://www.postgresql.org/docs/17/runtime-config-client.html#GUC-VACUUM-FREEZE-MIN-AGE
+🔸 freeze işlemi tetiklendiğinde  vacuum_freeze_min_age bu parametre limiti kadar freeze işlemi gerçekşecek satırlara
+
+select relname,relminmxid,relfrozenxid,
+age(relfrozenxid)::text::bigint as age   --  tablonun yaşı 70_000_000 > 50_000_000
+from pg_class where relname='test_freeze' order by relfrozenxid::text::bigint desc limit 5
+
+
+--vacuum_freeze_table_age	150_000_000	Age at which VACUUM should scan whole table to freeze tuples.
+--https://www.postgresql.org/docs/17/runtime-config-client.html#GUC-VACUUM-FREEZE-TABLE-AGE
+🔸 normal vacuum komutu çalıştırıldığında freeze komutu tetiklenmesi için limit
+🔸 vacuum işlemi freeze işleminide tetikler. frozen tuple olmayan satırlar. frozen tuple haline gelir. 
+tuple_age > vacuum_freeze_min_age büyük olma kuralına göre
+
+
+select relname,relminmxid,relfrozenxid,
+age(relfrozenxid)::text::bigint as age   --  tablonun yaşı 170_000_000 > 50_000_000
+from pg_class where relname='test_freeze' order by relfrozenxid::text::bigint desc limit 5
+
+
+
+--https://www.postgresql.org/docs/17/runtime-config-autovacuum.html#GUC-AUTOVACUUM-FREEZE-MAX-AGE
+🔸 autovacuum_freeze_max_age	200_000_000	Age at which to autovacuum a table to prevent transaction ID wraparound.
+
+🔸 autovacuum ile vacuum tetiklenidğinde freeze komutunda tetiklenmesi için limit
+bu değer > normal kullanıcın vacuum işleminden tetiklenmesinde büyüktür. aynı anda çalışma şansını ortadan kaldırmak için.
+
+2_147_483_648
+-- ☢️ vacuum_failsafe_age	1_600_000_000	Age at which VACUUM should trigger failsafe to avoid a wraparound outage.
+
+--https://www.postgresql.org/docs/17/runtime-config-client.html#GUC-VACUUM-FAILSAFE-AGE
+
+🔸 When the failsafe is triggered, any cost-based delay that is in effect will no longer be applied, further non-essential maintenance tasks (such as index vacuuming) are bypassed, and any Buffer Access Strategy in use will be disabled resulting in VACUUM being free to make use of all of shared buffers.
+
+🚨 Bu sınıra yaklaşılır ise postgres tüm kaynaklarını frozen işlemi gerçekleştirmek için kullanır. 
+vacuum işlemi tüm shared buffer kullanılabilecek modda çalışır. 🚨
+
+-- 🚨 askıda connection masterda ,standbylarda, uzun süreleri connection kalmamalı
+/*
+Özet;
+
+VACUUM komutu sayesinde:
+
+🔹 Update veya delete işlemleri sonucu oluşan dead_tuple kapladığı disk alanını geri kazandırır. (VACUUM) 
+🔹 İstatistikleri güncelleyerek, sorgu planlayıcısının daha doğru kararlar almasını ve sorguların daha hızlı çalışmasını sağlar. (ANALYZE)
+🔹 Visibility Map'i günceller, bu da index-only scan (sadece index kullanılarak yapılan taramalar) taramasının gerçekleşmesini sağlar. (VACUUM)
+🔹 Transaction ID sarmalanması (wraparound) nedeniyle oluşabilecek veri kaybını önler. (FREEZE)
+
+
+-- 24.1.6. The Autovacuum Daemon 
+
+🔸 PostgreSQL has an optional but highly recommended feature called 🚨 autovacuum 🚨,  
+whose purpose is to automate the execution of VACUUM and ANALYZE commands.
+
+🔸 Bakım süreclerini arka planda yöneten yardımcı processimiz autovacuum launcher, tablo üzerinde gerçekleşen işlemler ile belirli eşik değerler aşıldığında autovacuum launcher, ilgili tabloda vacuum/analyze sürecini tetikler. varsayılan olarak açıktır. ☢️ kapatılmaması önerilir. ☢️
+
+🔸 Son vacuum işleminde beri tabloda oluşan dead_tuples ya da gerçekleşen insert satır sayısı> tetiklenme değerinden büyük ise
+autovacuum -> vacuum komutunu başlatır.
+
+
+🔸UPDATE ya da DELETE için formül   (dead tuple sayısına göre son vacuum gördüğünden beri)
+
+vacuum threshold (dead tuple) >= vacuum base threshold  + vacuum scale factor * number of tuples
+
+Dead tuple nasıl oluşuyordu. delete işlemi , update  işlemi sonrası
+
+
+🔸 insert olan satırlara dayalı formül  (insert sayısına göre son vacuum gördüğünden beri)
+
+vacuum insert threshold >= vacuum base insert threshold + vacuum insert scale factor * number of tuples
+
+
+🔸 Bu değerler nereden geliyor ona bakacak olursak.
+
+-- formüllerdeki değerlerin default ayarları şu şekildedir.
+select name,setting,short_desc 
+from pg_settings 
+where name like '%autovacuum%' and  (name like '%threshold%' or name like '%factor%');
+
+
+🔸 Bu değerlere göre bir örnek hesap yapmak gerekirse.
+
+vacuum threshold (oluşan dead_tuple sayısı) >= 
+
+vacuum base threshold (50) +  
+vacuum scale factor (0.2) * 
+number of tuples (pg_class.reltuples yada  pg_Stat_user_tables.n_live_tup göreceğimiz değer.)
+
+*/
+
+select 50+0.2*10000 = 2050 --> bu satır sayısında fazla n_dead_tup gerçekleşir ise tetiklenecektir.
+
+
+vacuum insert threshold >= 
+vacuum base insert threshold (1000) + 
+vacuum insert scale factor (0.2) * number of tuples (pg_Stat_user_tables.n_live_tup)
+
+
+
+
+
+select (now()+ '1day'::interval*xid)::date,  "vacuum insert scale factor" , "vacuum base insert threshold"  , "gerçekeleşen insert sonrası tablodaki satır sayısı" ,
+"tabloya yapılan insert satır sayısı" , 
+"vacuum base insert threshold" +"vacuum insert scale factor"*"gerçekeleşen insert sonrası tablodaki satır sayısı"  
+as "vacuum tetiklenmesi gereken minumum gerçekleşmesi gereken insert sayısı son vacuumdan beri" ,
+
+case when "tabloya yapılan insert satır sayısı" > "vacuum base insert threshold" +"vacuum insert scale factor"*"gerçekeleşen insert sonrası tablodaki satır sayısı"  then 'tetiklendi'
+else 'tetiklenemez' end 
+
+from (
+select  xid, "tabloya yapılan insert satır sayısı" ,
+sum ("tablomdaki başlangıç satır sayısı" + "tabloya yapılan insert satır sayısı" )
+over( order by xid ) as "gerçekeleşen insert sonrası tablodaki satır sayısı" ,"vacuum base insert threshold" ,"vacuum insert scale factor"
+from (
+select 
+0 as "tablomdaki başlangıç satır sayısı",
+1000  as "vacuum base insert threshold" ,
+0.2 as "vacuum insert scale factor" ,
+generate_series(0,10) as xid,
+10000 as "tabloya yapılan insert satır sayısı"
+) t1 
+) t1 
+
+
+
+select 100_000_000 *0.2 , 20_000_000.0 
+
+-- tabloya özel ince ayar yapıyorum.
+ALTER TABLE IF EXISTS public.test SET (  autovacuum_vacuum_scale_factor = 0.0002 ); -- delete update etklinen satır sayısın eşik
+ALTER TABLE IF EXISTS public.test SET (  autovacuum_vacuum_insert_scale_factor = 0.0002 ); -- insert sayısında tetiklenen eşik
+
+select 100_000_000 *0.0002 , tabloda 20_000 insert işlemi gerçekleştiğinde 
+
+--bu kolonlara yorum yapılarak autovacuuum tetiklenemeye tabloları tespit edilerek 
+--tablo özelinde ayarlanması lazım.
+select  relname,n_live_tup,--tablodaki satır sayımız
+		n_dead_tup, -- delete ve update sayısı son vacuum beri
+		n_mod_since_analyze, -- insert sayısı son analizden beri
+		n_ins_since_vacuum  -- insert sayısı son vacuum beri
+		,last_autovacuum,last_vacuum,last_autoanalyze --> en son ne zaman bakım işlemi gerçekleşmiş.
+from 	pg_stat_user_tables  limit 5 ;
+
+ -- ❓❓❓ Peki index bakımı ne zaman gerçekleşiyor hangi durumarlarda ihtiyaç duyuluyor. ❓❓❓
+
+/*
+-- 🌐 https://www.postgresql.org/docs/current/sql-reindex.html üzerinden devam edilecek.
+
+REINDEX [ ( option [, ...] ) ] { INDEX | TABLE | SCHEMA } [ CONCURRENTLY ] name
+REINDEX [ ( option [, ...] ) ] { DATABASE | SYSTEM } [ CONCURRENTLY ] [ name ]
+
+where option can be one of:
+
+    CONCURRENTLY [ boolean ]
+    TABLESPACE new_tablespace
+    VERBOSE [ boolean ]
+
+-- ☢️ reindex işlemi blocking read and write operations (ACCESS EXCLUSIVE)
+REINDEX INDEX my_index; -- bir index üzerinde reindex gerçekleştir.
+REINDEX TABLE my_table; -- tablodaki her index üzerinde reindex gerçekleşir.
+
+-- CONCURRENTLY without blocking read and write operations
+REINDEX TABLE CONCURRENTLY my_table; -- reindex işlemi ACCESS EXCLUVE lock koymadan gerçekleşir.
+
+🔸DROP INDEX momentarily takes an ACCESS EXCLUSIVE lock on the parent table, blocking both writes and reads
+🔸CREATE INDEX locks out writes but not reads, block writes , allow reads
+🔸REINDEX is similar to a drop and recreate of the index in that the index contents are rebuilt from scratch.  
+☢️ Concurrently kullanımı olmaz ise block read/write.
+
+❓ hangi durumlarda reindeks düşünlümeliyiz ❓ 
+
+🔸An index has become “bloated”,
+
+Tablo üzerinde gerçekleşen UPDATE ve DELETE işlemleri, tablonun data_page alanlarında dead_tuple oluşmasına neden olur. Bu ölü satırlar, VACUUM işlemi ile temizlenerek tekrar kullanılabilir hâle getirilir.
+
+Benzer durum index page yapılarında da geçerlidir. Çünkü bir satır güncellendiğinde veya silindiğinde, bu satıra ait indeks girdileri de artık geçersiz hale gelir ve bu da indeks sayfalarında dead tuple oluşmasına yol açar.
+
+VACUUM işlemi, yalnızca tabloyu değil, indeksleri de kontrol eder. Yeterli sayıda ölü indeks tuple varsa, bu alanları da temizler ve index sayfalarının yeniden veri yazımı için uygun hale gelmesini sağlar. Bu sayede indeksin gereksiz yere büyümesi (bloat) engellenir.
+
+🎯 Vacuum komutunun INDEX_CLEANUP özelliği default AUTO durumundadır. index tablosunda bloatı önlemeye yardımcı olur. 
+
+-- elimdeki bir test tablosunda vacuum işlemi gerçekleştirilmiş,  ek olarak vacuum index kontrolü gerçekleştirerek %40 oranında index pagelerinde dead_tuple tekrar kullanıbabilir hale getirmiş
+vacuum verbose test;
+index scan needed: 298454 pages from table (40.04% of total) had 67450237 dead item identifiers removed
+
+ℹ️ Tablonun boyutuna oranla çok fazla update / delete işlemi gerçekleştirildiğinde. REINDEX concurrently ile autovacuum sürecine bu işlemi bırakmamak akıllıca olacaktır.
+
+ℹ️ leaf Fragmentation düşük , avg_leaf_density > %50 büyük olması beklenir.
+
+leaf_fragmenteation yüksek olması iyi değildir.
+index’in dallandığını ve gezilecek yolun uzadığını gösterir.
+
+Mantıksal olarak yakın olan index değerleri, fiziksel olarak uzak sayfalarda tutulduğuna işaret eder.
+
+Bu da aynı aralıktaki değerlere erişmek için daha fazla sayfa (page) okunması anlamına gelir.
+daha çok I/O yükü oluşturur.
+
+
+*/
+create table test_reindex (c1 int);
+create index on test_reindex (c1); -- varsayılan btree
+
+-- Veri ekleniyor
+insert into test_reindex select generate_series(1,100_000);
+
+select * from pg_indexes where tablename='test_reindex' limit 10  --> indexleri görmek için 
+
+create extension pgstattuple;
+https://www.postgresql.org/docs/current/pgstattuple.html
+
+
+select avg_leaf_density,leaf_fragmentation from pgstatindex('test_reindex_c1_idx') ;
+
+-- avg_leaf_density: Sayfa başına ortalama doluluk oranı. > %50'nin üzerinde olması iyidir.
+-- leaf_fragmentation: Sayfalar arasında veri dağılımı ne kadar dağınık? Düşük olması beklenir.
+
+insert into test_reindex select generate_series(1,1000000);
+select avg_leaf_density,leaf_fragmentation from pgstatindex('test_reindex_c1_idx') ;
+90.06	0, --> parçalanma yok.
+
+insert into test_reindex select generate_series(1,1000000);
+select avg_leaf_density,leaf_fragmentation from pgstatindex('test_reindex_c1_idx') ;
+83.9	49.99 --> %50 oldu, Örn. %50 %50 data eşit büyüklükte, 1 değer iki farklı index page üzerinde  yer alacağı için (adreslenmiş) leaf_fragmentation %50 yarı yarıya farklı yerlerde.
+
+
+insert into test_reindex select generate_series(1,1000000);
+
+select avg_leaf_density,leaf_fragmentation from pgstatindex('test_reindex_c1_idx') ;
+74.83	33.33 --> %33 oldu, Örn. datam üç eşit büyüklte dağılmış, 1 değer üç farklı page yer alacağı için leaf_fragmentation %33 
+
+reindex (verbose) table test_reindex;
+
+select avg_leaf_density,leaf_fragmentation from pgstatindex('test_reindex_c1_idx') ;
+90.09	0  fragmentation azaldı.
+
+-- index baştan yazılma (rewrite) işlemi gerçekleşerek verileri mantıksal - fiziksel olarak korele hale geldi. 
+
+-- 🔸An index has become corrupted, 
+
+Bug ya da donanım arazıları nedeniyle nadirde olsa görülebilir.
+
+-- çalışan sorguda  ve loglarda gözükecek örnek hata:
+*/
+WARNING:  page verification failed, calculated checksum 346 but expected 36611
+ERROR:  invalid page in block 0 of relation base/16699/16723
+/*
+
+ℹ️ base/16699/16723 (base/database_ID/rellfilenode) relation bilgileri 💥indexe ait ise 🎯 REINDEX yapılarak corrupt index datası , verinin kendisinden tablodan tekrardan oluşturulur.
+
+select * from pg_Class where relfilenode=  limit 10 
+
+☢️ değil ise yazılan veri corrupt olmuştur. Yedek üzerinde tablo tekrardan restore edilme adımı gerekecektir. 
+
+🔸An index build fails with the CONCURRENTLY option, the index is marked as "invalid"  
+
+REINDEX TABLE CONCURRENTLY komutu çalışırken tamamlanmadan iptal edilirse (örneğin CTRL+C, pg_terminate_backend, sunucu restart gibi durumlarla), yeniden oluşturulmaya çalışılan indeks "invalid" (geçersiz) bir durumda kalır.
+*/
+reindex table concurrently test  ; --kill çekildi. 
+
+-- invalid indeksleri tespit eden komut
+SELECT * FROM pg_class, pg_index 
+WHERE pg_index.indisvalid = false 
+AND pg_index.indexrelid = pg_class.oid;
+
+reindex table concurrently test  ; -- tekrar komut çalıştırılmak istendiğinde
+
+-- WARNING:  skipping reindex of invalid index "public.test_c1_idx_ccnew"
+
+reindex table  test  ;  -- concurrently olmadan reindex işlemin yürütülmesi gerecektir. AccessExclusiveLock alacaktır tablo. okuma / yazma sen bir dur bakalım.
+
+Reindex,
+fragmantasyon, 
+corruption,
+concurrently yarıda kesilmesi,
+
+/*-------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/17/sql-cluster.html
+⭕️ CLUSTER TABLE , Reorder data 
+-- CLUSTER — cluster a table according to an index
+---------------------------------------------------------------
+
+☢️ CLUSTER tablo ACCESS EXCLUSIVE alır. block read/write
+
+-- 
+cluster test_table; --ilk defa cluster komutu yürüttüğümüz durumda
+
+ERROR:  there is no previously clustered index for table "test" 
+SQL state: 42704
+
+
+cluster  test_tablo using test_index_c1_idx; 
+
+When a table is clustered, it is 💥 physically reordered based on the index information. 
+Clustering is a one-time operation: when the table is subsequently updated, the changes are not clustered.
+
+That is, no attempt is made to store new or updated rows according to their index order.
+
+Bir tabloda CLUSTER komutu yürütüldüğünde, fiziksel olarak seçilen indeksin sırasına göre yeniden sıralanır (rewrite) . Ancak bu işlem tek seferliktir; tabloya sonradan yapılan ekleme veya güncellemelerde, veriler indeks sırasına göre yerleştirilmez, yani 💥sıralama düzeni korunmaz.
+
+*/
+
+create table if not exists test_index_cluster (c1 int);
+create index on test_index_cluster (c1);
+
+insert into  test_index_cluster
+select *
+from (
+select generate_Series(1,100_000)
+) t1 order by random()
+
+
+select * from test_index_cluster limit 100 -- karışık durumda geldi veriler.
+
+
+--⚠️ Postgres fiziksel olarak order şekilde yazılım gerçekleştirilmez. primary key olsa bile. Gelen veri boşluk olan data_pages içine konulur.
+
+
+explain (analyze ,buffers)
+select * from test_index_cluster where c1>99 AND c1 <200
+
+Bitmap Heap Scan on test_index_cluster  (cost=14.08..489.19 rows=565 width=4) (actual time=0.053..0.399 rows=100 loops=1)
+  Recheck Cond: ((c1 > 99) AND (c1 < 200))
+  Heap Blocks: exact=85
+  Buffers: shared hit=87
+  ->  Bitmap Index Scan on test_index_cluster_c1_idx  (cost=0.00..13.94 rows=565 width=0) (actual time=0.027..0.027 rows=100 loops=1)
+        Index Cond: ((c1 > 99) AND (c1 < 200))
+        Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=3
+Planning Time: 0.237 ms
+Execution Time: 0.443 ms
+
+-- kolondaki verinin yapısı ile fiziksel yerleşmesi arasındaki farkı anlamak için istatiksik tablosundan yararlanabiliriz.
+
+
+--https://www.postgresql.org/docs/current/view-pg-stats.html
+/**
+Statistical correlation between physical row ordering and logical ordering of the column values.
+This ranges from -1 to +1. When the value is near -1 or +1, 
+an index scan on the column will be estimated to be cheaper than when it is near zero,
+due to reduction of random access to the disk.
+**/
+
+select   correlation from pg_Stats  where tablename ='test_index_cluster' limit 10 
+
+-- ❓❓❓ pg_stats güncelleyen bakım işlemi neydi ❓❓❓ analyze 
+
+analyze test_index_cluster -- çalıştıyorum pg_stats güncellenmesi için
+
+select   correlation from pg_Stats  where tablename ='test_index_cluster' limit 10 
+
+
+explain (analyze ,buffers)
+select * from test_index_cluster where c1>99 AND c1 <200;
+
+Bitmap Heap Scan on test_index_cluster  (cost=5.30..243.09 rows=98 width=4) (actual time=0.058..0.442 rows=100 loops=1)
+  Recheck Cond: ((c1 > 99) AND (c1 < 200))
+  Heap Blocks: exact=90 💥  I/O işlemi , taranan data_pages
+  Buffers: shared hit=92
+  ->  Bitmap Index Scan on test_index_cluster_c1_idx  (cost=0.00..5.27 rows=98 width=0) (actual time=0.025..0.028 rows=100 loops=1)
+        Index Cond: ((c1 > 99) AND (c1 < 200))
+        Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=6
+Planning Time: 0.178 ms
+Execution Time: 0.658 ms
+
+-- Query complete 00:00:13.641
+
+-- cluster komutu yürütüyorum
+cluster test_index_cluster using  test_index_cluster_c1_idx ;
+
+
+select   correlation from pg_Stats  where tablename ='test_index_cluster' limit 10
+--0.0025889443 korelasyon değeri değişmedi
+
+explain (analyze ,buffers)
+select * from test_index_cluster where c1>99 AND c1 <200;
+
+Bitmap Heap Scan on test_index_cluster  (cost=5.30..243.09 rows=98 width=4) (actual time=0.023..0.182 rows=100 loops=1)
+  Recheck Cond: ((c1 > 99) AND (c1 < 200))
+  Heap Blocks: exact=1💥
+  Buffers: shared hit=3
+  ->  Bitmap Index Scan on test_index_cluster_c1_idx  (cost=0.00..5.27 rows=98 width=0) (actual time=0.013..0.014 rows=100 loops=1)
+        Index Cond: ((c1 > 99) AND (c1 < 200))
+        Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=16 --> shared_buffer içinde bulunmuş demek veri
+   read=3 --> shared_buffer dışında veri bulunmuştur, diskten çağrılmıştır.
+Planning Time: 0.261 ms
+Execution Time: 0.370 ms
+
+analyze test_index_cluster -- çalıştıyorum pg_stats güncellenmesi için
+
+select   correlation from pg_Stats  where tablename ='test_index_cluster' limit 10 
+correlation 1 oldu.
+14:00 
+
+/*----------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/monitoring.html
+⭕️ Chapter 28. Monitoring Database Activity
+-- Veritabanını izleme 
+ 
+------------------------------------------------------------------
+Bir veritabanı yöneticisi olarak şuan sistem ne yapıyor ? 
+Veritabanını daha iyi yönetilmesi sağlayacak bilgilere erişim ? 
+
+
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html
+🔶 28.2. The Cumulative Statistics System 
+
+Cumulative statistics are collected in shared memory.
+
+"kümülatif İstatistik" ler shared_bufferda tutuluyor. 
+Bir process toplanan İstatistik 
+
+her Process yaptıkları işlemlerin istatistik bilgileri kendileri toplar  
+Ve  shared_buffer bulunan istatistik bilgilerin olduğu tablolar ara ara günceller.
+
+Güvenli şekilde kapandığında postgres bu ramdeki istatistik verisi , pg_stat klasörü altında kaydeder.
+Böylece bir postgres server geri başladığında, bu verilerde geri rame yüklenir. Yani istatistik bilgileri "resetlenmez".
+
+Güvensiz kapanma durumunda yada crash durumunda istatisk verileri ise diske yazılma durumu gerçekleşemeceği için "resetlenir".
+
+
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-STATS-VIEWS
+
+Table 28.1. Dynamic Statistics Views  (Anlık durum bilgileri verir.)
+Table 28.2. Collected Statistics Views  (kümülatif istatiksel bilgileri )
+
+
+
+🔶 Table 28.1. Dynamic Statistics Views 
+
+⭕️ pg_Stat_Activity
+🌐 https://www.postgresql.org/docs/16/monitoring-stats.html#MONITORING-PG-STAT-ACTIVITY-VIEW
+
+
+/**
+The pg_stat_activity view will have one row per server process, 
+showing information related to the current activity of that process.
+**/
+
+Her sunucu işlemi (process) için bir satır olacak şekilde, o işlemin mevcut durumu ve o anda çalıştırdığı sorgu gibi bilgileri gösterir.
+
+select * from pg_stat_activity limit 10
+
+*/
+-- her bir veritabanında çalışan bağlantı sayısı
+select count(*),datname from pg_Stat_activity group by datname
+
+-- kullanıcı kırılımında gelen  bağlantı sayısı
+select count(*),usename from pg_Stat_activity group by usename
+
+-- uzun süre çalışan sorgular
+select * from pg_Stat_activity; 
+
+en son sorgu ne zaman yolladığını görmek için -- query_start
+sorgunun hala çalışır durumda olduğu anlamak için -- state kolonu = active
+
+select now() -query_start  ,* 
+from   pg_stat_Activity   order by now() -query_start  desc nulls last 
+
+
+select now() - query_start as "en_son_sorgu_yollandığı_zaman" ,state, * 
+from pg_stat_Activity 
+where backend_type='client backend'
+and state='active'
+order by now() -query_start  desc nulls last ;
+
+-- 3253 uzun çalışan sorgum iptal etmek istiyorum.
+
+select pg_cancel_backend (3253);  -->
+-- process üzerinde çalışan sorguyu sonlandırmak içinclient tarafına aşağıdaki hata gözlemlenir. Bağlantısı process sonlanmaz.
+
+ERROR:  canceling statement due to user request 
+SQL state: 57014
+
+select pg_terminate_backend(3253); -- process sonlandırmak için
+
+FATAL:  terminating connection due to administrator command
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+The connection to the server was lost. Attempting reset: Succeeded.
+
+
+select * from pg_stat_progress_basebackup --> çalışan basebackup yedeğin durumunu görmek için
+select * from pg_stat_progress_copy --> çalışan copyları komutların durumunu görmek için
+
+copy (select * from asdsadad)  to ''  ,csv ,txt, custom delimeter
+copy  ..  from ''  
+copy (select now(), * from pg_stat_progress_basebackup) to '/pgdata/stat.txt' ;
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-BGWRITER-VIEW
+⭕️ pg_stat_bgwriter
+ containing data about the background writer of the cluster.
+--------------------------------------------
+
+select * from pg_stat_bgwriter 
+
+-- shared_buffers içersindeki dirty bufferlarımız diske yazımını gerçekleştiriyordu.
+
+maxwritten_clean sayısı yüksekliyor ise, 
+bgwriter temizleyeceğinden daha fazla "dirty buffer" oluşuyor demektedir. 
+Yani bgwriter temizle işinde yavaş kalıyor olabilir.
+Normal kullanıcı sorgularında perfomans kaybı gözlemlenebilir.
+🎯  bgwriter_lru_maxpages yükseltilmesi düşünüebilir. yada daha sık bgwriter tetiklenmesi.
+select * from pg_Settings where name like '%bgwriter%'
+bgwriter_delay,bgwriter_lru_maxpages,bgwriter_lru_multiplier, parametreler üzerinde. 
+Daha çok dirty buffer temizleyecek şekilde ayar yapılmalıdır.
+
+select pg_size_pretty(buffers_clean*8096), * from pg_stat_bgwriter 
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-CHECKPOINTER-VIEW
+⭕️ pg_stat_checkpointer 
+containing data about the checkpointer process
+--------------------------------------------
+
+
+select * from pg_stat_checkpointer;
+
+checkpoint;
+
+num_timed, checkpoint_timeout tetiklenme sayısı
+num_requested, max_wal_size, create database ,checkpoint vb ...
+restartpoints, In archive recovery or standby mode, the server periodically performs restartpoints, which are similar to checkpoints in normal operation.
+
+🎯 num_timed > num_requested  şeklinde olması beklenir. 
+
+num_timed az ise checkpoint , max_wal_size  tarafından tetikleniyordur. Bu parametrenin yükseltilmesi önerilir.
+
+v17 öncesi pg_bgwriter içeririsinden takip edilebilir. checkpoints_timed>checkpoints_req
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-IO-VIEW
+⭕️ PG-STAT-IO
+--------------------------------------------
+pg16 ile birlikte geldi. database cLusterımızdaki I/O durumu hakkında kümülatif bilgi vermekte.
+select *  from pg_stat_io ; --üzerindeki kolonları ve gözlemeyeceğimiz değerlere bakalım.
+
+🔶 backend_type -> istatiksel bilgisi toplanan backend prrocess
+select distinct backend_type from pg_Stat_io;
+background worker
+client backend
+walsender
+standalone backend
+autovacuum worker
+autovacuum launcher
+background writer
+startup
+checkpointer
+
+select *  from pg_stat_io where backend_type in ('client backend','background writer','checkpointer')
+
+
+🔶 context -> yapılan I/O operasyonu ne olduğu gösterir
+	--normal: 
+	The default or standard context for a type of I/O operation. 
+	For example, by default, relation data is read into and written out from shared buffers. 
+	Thus, reads and writes of relation data to and from shared buffers are tracked in context normal.
+Kullanıcı sorgularında bu istatistik bilgeri güncellenir.
+	- vacuum: autovacuum ve vacuum süreçlerinde gözükür.
+	  I/O operations performed outside of shared buffers while vacuuming and analyzing permanent relations. 
+		Temporary table vacuums use the same local buffer pool as other temporary table IO operations 
+		and are tracked in context normal.
+	-- bulkread:
+	   Certain large read I/O operations done outside of shared buffers, 
+		 for example, a sequential scan of a large table.
+	-- bulkwrite:
+	   Certain large write I/O operations done outside of shared buffers, such as COPY
+**/*/*/
+SELECT backend_type, object, context, 
+-- her bir kolon blok işlemini tipini 
+-- değerler ise kaç kez bu blok işleminin gerçekleştiğine karşılık sayılardır.
+hits,writes, --shared_buffer okuma, yazma          (shared_buffer)
+reads,writebacks,  -- diskten okuma, diske yazma   (disk)
+extends,-- yeni sayfa ihtiyacı (diskten yeni blok)  (disk) 
+evictions, -- shared buffer boşaltma talep (başka veri için yer açma) data_buffer(clean) <-> data_pages
+reuses, -- ring buffer kullanımı (bulkread,bulkwrite or vacuuum )  (ram)
+fsyncs,  -- fsync işlem talep sayısı (kalıcı diske yazım)  (disk)
+stats_reset
+FROM pg_catalog.pg_stat_io 
+order by reuses desc nulls last  ; 
+
+-- ❓❓ Querylerimizin aradığı verilerin nerede olmasını bekleriz ❓❓ 
+
+
+
+-- tablo üzerinde değerleri yorumlayalım. 
+-- uzun süre toplanan bir istatik verisini olduğu ortamda
+select backend_type,context,sum(hits),
+pg_size_pretty(sum(hits*8096)) as hits,pg_size_pretty(sum(writes*op_bytes)) as writes,
+pg_size_pretty(sum(reads*op_bytes)) as reads ,pg_size_pretty(sum(writebacks*op_bytes)) as writebacks,
+pg_size_pretty(sum(evictions*op_bytes)) as evictions 
+from pg_stat_io where backend_type ='client backend'
+group by backend_type,context
+
+/*
+client backend,context (normal)  satırındaki, hits değerinin > reads büyük olması sorgularımızın aradığı verileri shared_buffer içinde yani cacheden okuduğuna işaret eder.
+
+🎯 evictions sayısının fazla olmasını, shared_buffera düşük olduğuna işaret edecektir.
+*/
+
+select backend_type,context,writebacks,fsyncs from pg_stat_io 
+where backend_type in ('client backend','background writer','checkpointer',
+'background worker','autovacuum worker')
+and fsyncs >0  , 
+
+fsynclerin , background writer, checkpointer tarafından gerçekleştirilmeli.
+
+				        writebacks    | fsyncs
+checkpointer	normal	222271	           171
+client backend	normal  2222712           1000
+/*
+🎯 fsync sayıları karşılaştırma yaptığınızda client backend, normal karşılık satır değerleri checkpointer ve bgwriter göre fazla ise, dirty buffer temizliği çalışan sorgularımız tarafında yapılıyor demektir. sorgu perfomansımız düşüecektir. 
+*/
+
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-DATABASE-VIEW
+⭕️ pg_stat_database
+--------------------------------------------
+create database profelis;
+select * from pg_stat_database ;
+
+SELECT datid, datname, numbackends, --aktif connection sayısı
+-- 🎯 connection havuzunu database limitlerken kontrol için
+xact_commit, xact_rollback, 
+
+blks_read, -- veriye diskten erişilmesi
+blks_hit,  -- veriye shared_buffer erişilmesi   
+
+-- 🎯 blks_hit/blks_read oranın yüksek olması cache ağırlık çalıştığını gösterir.
+tup_returned, -- seq_scan ve index üzerinen bulunan satır sayısı
+tup_fetched,  -- index ile bulunan satır sayısı
+
+-- 🎯 tup_fetched/tup_returned oranın yüksek olması index yönelimin yüksek olduğunu gösterir.
+-- tup_fetched =0 ise index kullanımı gerçekleşmiyır.
+tup_inserted, -- insert olan satır sayısı
+tup_updated,  -- update işlemi göre satır sayısı
+tup_deleted,  -- silme işlemi gerçekleşen satır sayısı
+
+conflicts, -- Number of queries canceled due to conflicts with recovery in this database. (Conflicts occur only on 💥 standby servers)
+
+temp_files, temp_bytes, 
+-- Number of temporary files created by queries in this database. All temporary files are counted, regardless of why the temporary file was created (e.g., 💥 sorting or hashing) 
+
+-- bu veritabanın çalışan sorgular kontrol edilerek temp_file oluşumu engellenmeli yada work_mem tune yapılması düşünülmeli.
+
+deadlocks,
+-- çok fazla deadlock oluyor ise bu veritabanı üzerinde çalışan sorgular / uygulama incelenmeli
+
+checksum_failures, checksum_last_failure, 
+-- data_checkums initdb esnasında -k ile aktif oluyor.
+-- ☢️ >0 büyük ise disk yada disk bileşenleri kontrol edilmeli. veri kaybı gerçekleşiyordur.
+
+session_time, -- toplam süren bağlantı süresi
+active_time, 
+idle_in_transaction_time, 
+sessions, -- toplam sesions
+sessions_abandoned, -- client bağlantısının kesilmesi yüzünden düşen sesionlar.
+sessions_fatal, -- fatal error tarafından öldürülen bağlantı sayısı
+-- ⚠️ fatal sayısı artıyor ise günden güne ilgili veritabanı gelen ve fatal üreten sorgu incelenmeli
+sessions_killed, -- kill komutu ile öldürülen bağlantı sayısı
+stats_reset
+FROM pg_catalog.pg_stat_database;
+
+--🎯 tup_fetched index okuması az gerçekleşiyor ise bu veritabanı üzerinden çalışan sorgular pg_stat_statements üzerinden incelenmeli ve dokunduğu tablolar (pg_stat_user_Tables, pg_stat_user_indexes ) index iyileştirmesi düşünülebilir.
+
+
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-ALL-TABLES-VIEW
+⭕️ pg_stat_all_Tables,pg_stat_user_tables,pg_stat_sys_tables
+-- tabloya erişim ile ilgili istatiksel bilgiler bulunur.
+--------------------------------------------
+-- bağlı olduğum db tablolara ati bir takım istatitksel bilgiler
+select * from pg_Stat_user_tables;
+
+
+SELECT relid, --obje id 
+schemaname,  relname, --şema ve tablo ismi
+seq_scan, last_seq_scan, seq_tup_read, --seq_scan adeti, en son gerçekleşme , kaç satır okundu.
+idx_scan, last_idx_scan, idx_tup_fetch, --index scan adeti, en son gerçekleşme , kaç satır okundu.
+
+-- 🎯 idx_scan < seq_scan  olan tablolarda index oluşturmak düşünebilir. 
+
+create extension pg_stat_statements;
+select * from pg_stat_statements limit 5, query kolonun erişilen tespit edileiblir.
+select * from pg_stat_statements where query like '%tablo_ismi%';
+
+n_tup_ins, n_tup_upd, n_tup_del, n_tup_hot_upd, n_tup_newpage_upd, -- DML işleminden etkilen satırların adetleri
+
+n_live_tup, -- Estimated number of live rows
+--🎯 tüm tablonun satır sayısı almak için kullanılabilir. vacuum işlemi ne kadar güncel ise o kadar doğru sonuç verecekti
+select count(*) from table_name -> işlemi vakit süreç
+
+n_dead_tup, -- son vacuum işleminden beri oluşan dead_tup sayısı
+
+n_mod_since_analyze,  --Estimated number of rows modified since this table was last analyzed
+n_ins_since_vacuum,  -- Estimated number of rows inserted since this table was last vacuumed
+
+select n_live_tup*0.02, * from pg_stat_user_Tables order by n_live_tup desc --> scale factor ayarı gerektire ntabloların tespiti
+
+
+last_vacuum,  --Last time at which this table was manually vacuumed (not counting 💥 VACUUM FULL)
+last_analyze,  --last_analyze timestamp with time zone
+-- manuel bakim işlemlerin takibi için
+last_autovacuum, --Last time at which this table was vacuumed by the autovacuum daemon
+last_autoanalyze,  --last_autoanalyze timestamp with time zone
+-- 🎯 autovacuum sağlıklı şekilde tüm tabloları taradığını görmek için dikkat edilmeli
+
+FROM pg_catalog.pg_stat_all_tables;
+*/*/
+-- hiç vacuum görmemiş tabloları getirebiliriz.
+select * from pg_stat_user_tables where vacuum_count is null or   autovacuum_count is null
+
+-- ☢️ bir tablo sorgu yavaşlığı var ise, tablonun enson
+last_autoanalyze,last_autovacuum,last_analyze,last_vacuum  gördüğü kontrol edilebilir. yakın zamanda bir bakım işlemi yok ise 
+
+-- manuel analyze vacuum sonrası sorgu perfomansı artışı oluyor ise , autovacuum parametresi iyileştirme düşünebilir.
+
+-- 🎯 Gündüzleri yoğun çalışan bir veritabanında, autovacuum süreci her tabloya yetişemediği durumda, geceleri yada haftalık dönğüde vacuumdb komutu ile paralel şekilde tabloları hızlıca tarayacak çalıştırma ayarı yapılabilir.
+
+vacuumdb -j 10  vm tablo her 
+
+
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-ALL-INDEXES-VIEW
+⭕️ pg_stat_all_indexes,pg_stat_user_indexes,pg_stat_sys_indexes
+-- indexlere ait istatiksel bilgiler bulunur.
+--------------------------------------------
+
+
+select * from pg_stat_user_indexes ;
+
+SELECT  relid, indexrelid, 
+		schemaname, relname,  -- indexin olduğu şema.tablo bilgisi
+		indexrelname, -- index ismi
+		idx_scan, -- kaç kez indexin kullanıldığı
+		--🎯 idx_scan =0 ise bu index kullanılmadığı belirtir.
+-- bu indexlerin neden kullanılmadığı incelenerek DROP INDEX yada iyileştirme düşünülmeli.
+last_idx_scan, 
+		idx_tup_read, -- index scani sonucu yakalnan satır
+		idx_tup_fetch -- index scani sonucu tablo üzerinden erişlen satır sayısı
+	-- index-only-scan, dead-tuple vb.. durumlardan tup_read > tup_fetch
+		-- arasında fark oluşması normal.
+FROM pg_catalog.pg_stat_all_indexes order by idx_Scan desc ;
+
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/16/monitoring-stats.html#MONITORING-PG-STATIO-ALL-TABLES-VIEW
+⭕️ pg_statio_all_tables,pg_statio_user_tables,pg_statio_sys_tables
+-- tablolara ait I/O istatistikleri
+--------------------------------------------
+
+
+select * from pg_catalog.pg_statio_user_tables ;
+
+/*
+🎯  heap_blks_read değeri 0 ise tablomuz atıl durumda kullanılmıyor olarak düşünebilir. Kurum içi değerlendirme sonrası bu tür tabloların kaldırılması veya arşivlenmesi düşünülebilir.
+
+🎯 heap_blks_hit / heap_blks_read Oranı, tablomuz shared_buffer (cache) bulunma durumu hakkında yorum yabiliriz.
+
+select schemaname, relname,heap_blks_hit/nullif(heap_blks_read,0) from pg_catalog.pg_statio_user_tables  order by 3  desc nulls last  
+
+>1 ,  Veri büyük oranda bellekten okunuyor. İyi cache performansı
+<0 , Verinin çoğu diskten okunuyor Bellek yetersiz olabilir.
+
+🎯 Sık erişilen verilerin olduğu (Sıcak veri ) tablolarda bu oranın yüksek olmasını bekleriz. kullanıcı tablosu, ürün bilgileri gibi tabloları filtreleyip bu tabloların *_hit oranların yüksek olmasını sağlanması. Disk I/O yerine in-memory (cache) erişim gerçekleştiği gösterir, bu da sorgu performansını ciddi oranda artırır.
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/16/monitoring-stats.html#MONITORING-PG-STATIO-ALL-INDEXES-VIEW
+⭕️ pg_statio_all_indexes,pg_statio_user_indexes,pg_statio_sys_indexes
+-- indexlere ait I/O istatistikleri
+--------------------------------------------
+
+select * from pg_statio_user_indexes
+
+
+SELECT relid, indexrelid, schemaname, relname, 
+indexrelname, 
+idx_blks_read, idx_blks_hit
+-- 🎯 idx_blks_hit / idx_blks_read Oranı, tablomuz shared_buffer (cache) bulunma durumu hakkında yorum yabiliriz. yüksek olması in-memory (cache) ağırlıklı olması veritabanı perfomansı artıracaktır.
+FROM pg_catalog.pg_statio_all_indexes;
+
+
+pg_stat_activity
+pg_stat_bgwriter
+pg_stat_checkpointer
+pg_stat_io
+pg_stat_database
+pg_stat_all_tables
+pg_stat_all_indexes
+pg_statio_all_tables
+pg_statio_all_indexes
+
+/*--------------------------------------------
+🌐 https://www.postgresql.org/docs/16/monitoring-stats.html#MONITORING-STATS-FUNCTIONS
+-- istatik verileri yönetimde kullanılan fonksiyonlar
+--------------------------------------------
+*/
+
+-- Resets all statistics counters for the current database to zero.
+select pg_stat_reset () → void
+-- ☢️  reset işlemi kullanımı çok sık yapılmalı, autovacuum süreçleri çalışmasını etkileyecektir.
+
+select * from pg_stat_user_tables 
+
+select * from pg_stat_user_tables ;
+
+-- "archiver", "bgwriter", "checkpointer", "io", "recovery_prefetch", "slru", or "wal".
+pg_stat_reset_shared ( text ) → void
+
+select * from pg_Stat_reset_shared('checkpointer');
+
+select * from pg_Stat_checkpointer;
+
+
+PARTİTON
+
+/*
+-----------------------------------------------------------------
+-- https://www.postgresql.org/docs/current/ddl-partitioning.html#DDL-PARTITIONING-OVERVIEW
+-- 🌐 Table Partitioning 
+
+ℹ️ Table Partition, bir tabloyu daha küçük fiziksel tablolara bölme işlemidir. Kullanıcı için mantıksal olarak tek bir tablo gibi görünür, fakat arka planda birçok alt tabloya (partition) dağıtılır.
+
+🔸 Eğer sorgularda WHERE koşulu partition kuralı ile örtüşüyorsa, PostgreSQL sadece ilgili partition’a erişir, bu da sorgu performansını artırır. 
+
+🔸 İndeks boyutlarında küçülme, çünkü veri fiziksel olarak bölünmüş olduğundan daha az çatallaşma olur. Bu da shared_buffers kullanımını azaltabilir. 
+
+🔸 Bakım işlemleri, örneğin eski veriyi silebilmek, daha kolaydır (tek bir partition DROP ile). 
+--  Postgresde 3 farklı partition yöntemi belirleyebiliyoruz.
+🔸Range Partitioning  5 ile 10 arası,  10> dan büyük 
+🔸List Partitioning  ( Elma , Armut ) , doğu batı kuzey gibi ayrımlardan, verinin sahip olduğu etiketler
+🔸Hash Partitioning  eşit büyüklüklere ayırmada. (sorgu perfomansı kazanımı yok, bakım işleri kolay yapılıyor.)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
