@@ -1,0 +1,1273 @@
+-- eğitim 2.gün
+1.Binary kurulumu (postgresql.org/downloads)
+
+sudo apt install curl ca-certificates
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+. /etc/os-release
+sudo sh -c "echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main' > /etc/apt/sources.list.d/pgdg.list"
+sudo apt update
+sudo apt -y install postgresql
+
+systemctl stop postgresql@17-main.service 
+systemctl disable  postgresql@17-main.service 
+systemctl disable  postgresql.service
+systemctl stop   postgresql.service
+
+2.Database cluster, dizini kurulumu (initdb)
+3.Database Server Başlatma (pg_ctl)
+
+find / -iname pg_ctl
+
+/usr/lib/postgresql/17/bin/initdb -D /data/pg17 -k  --checksum 
+
+
+listen_addresses='*'
+#port
+shared_buffers
+work_mem
+shared_buffers + max_connections*work_mem + max_connections*temp_buffers  < total_ram 
+bgwriter_delay = 20ms               
+bgwriter_lru_maxpages = 400
+
+effective_io_concurrency = 200 
+
+--cpu 32
+max_worker_processes = 32              # (change requires restart)
+max_parallel_workers_per_gather = 8    # limited by max_parallel_wor>
+max_parallel_maintenance_workers = 8   # limited by max_parallel_wor>
+max_parallel_workers = 32 
+
+max_wal_size = 10GB
+min_wal_size = 1GB
+random_page_cost = 1.2 - 1.4
+
+effective_cache_size = ram- shared_buffer
+
+logging_collector = on
+log_filename = 'postgresql-%Y-%m-%d.log'
+log_line_prefix = '%h %u %m [%p]'
+log_statement='ddl'
+datestyle = 'iso, dmy'
+timezone=''
+
+/usr/lib/postgresql/17/bin/pg_ctl start -D /data/pg17
+
+
+/*
+---------------------------------------------------------------------
+💼 Çalışma ikiden fazla data_dizin
+
+-- 1️⃣ Dizinlerin Hazırlanması
+--Öncelikle PostgreSQL verilerini saklayacağımız dizinleri oluşturuyoruz.
+
+--Root Kullanıcısında:
+mkdir /pgdata
+chown postgres:postgres /pgdata
+
+--PostgreSQL kullanıcısına geçiş yapıyoruz:
+su - postgres
+
+--PostgreSQL Kullanıcısında:
+mkdir /pgdata/pg16
+mkdir /pgdata/pg17
+--Bu dizinler PostgreSQL'in farklı sürümleri için ayrı clusterlar oluşturmak amacıyla kullanılacaktır.
+
+-- 2️⃣ PostgreSQL Clusterlarını Oluşturma
+
+--PostgreSQL 16 Clusterını Oluşturma
+/usr/lib/postgresql/16/bin/pg_ctl initdb -D /pgdata/pg16 -o "-k"
+
+--PostgreSQL 17 Clusterını Oluşturma
+/usr/lib/postgresql/17/bin/pg_ctl initdb -D /pgdata/pg17 -o "-k"
+
+-- 3️⃣ Clusterları Başlatma
+
+-- Kurulan PostgreSQL clusterlarını başlatıyoruz:
+/usr/lib/postgresql/16/bin/pg_ctl start -D /pgdata/pg16
+/usr/lib/postgresql/17/bin/pg_ctl start -D /pgdata/pg17
+
+-- 🔍 Neden Böyle Bir Yapıya İhtiyaç Duyabiliriz?
+
+Major sürüm güncellemeleri gerçekleştireceğimiz durumlarda.
+
+Test ortamlarında, geliştirilen uygulamalar için birbirinden izole PostgreSQL clusterları oluşturmak amacıyla.
+
+---
+pg_upgrade  , 
+link mode , yarıda kalırsa geri dönüş olmuyor
+pg16
+pg17 dizini oluşturuyor pg_upgade link en az kapanmaya sağlanıyor.
+
+
+pg_17 start
+
+pg_upgrade  , 
+pg16 1tb
+pg17 1tb boşta yer alamam 1saat sürecekliyor.
+
+
+
+logical_replication,
+
+pg16 procduction çalışıyr
+pg17 ,
+
+pg16 -> pg17 logical replication  ,  
+
+
+*/*/
+
+/*
+💼 Çalışma servis dosyası yapılandırma
+
+Bu iki küme için restart sonrası otomatik başlaması için gerekli ayarlamalı yapılması.
+-- Daemon servisi düzenlemesi
+-- 🌐 https://www.postgresql.org/docs/16/server-start.html
+
+
+/etc/systemd/system/postgresql-17.service
+
+
+[Unit]
+Description=PostgreSQL database server
+Documentation=man:postgres(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=postgres
+ExecStart=/usr/lib/postgresql/17/bin/postgres -D /data/simple_data
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutSec=infinity
+
+[Install]
+WantedBy=multi-user.target
+
+
+10:30 - 11:00 
+
+
+psql -h 10.10.11.141 -p 5432 -U postgres -d postgres 
+
+psql: error: connection to server at "10.10.11.141", port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+
+
+listen_address='*'  değişikliği yapıldı.
+
+
+profelis@profelis:~$ psql -h 10.10.11.141 -p 5432 -U postgres -d postgres 
+psql: error: connection to server at "10.10.11.141", port 5432 failed: FATAL:  no pg_hba.conf entry for host "10.10.11.1", user "postgres", database "postgres", no encryption
+
+
+data dizini içerisindeki pg_hba.conf , ip izni tanımı yapıldı.
+
+host    all             all             10.10.11.1/32           scram-sha-256
+
+
+
+/usr/lib/postgresql/17/bin/pg_ctl reload -D /data/simple_data/
+2025-05-14 08:10:05.981 UTC [1427] LOG:  received SIGHUP, reloading configuration files
+server signaled
+
+
+postgres serverın aktif hba kuralların ıgörmek için .
+
+select * from pg_hba_file_rules ; --> bu sorgu ile check edilmeli.
+
+
+profelis@profelis:~$ psql -h 10.10.11.141 -p 5432 -U postgres -d postgres 
+Password for user postgres: 
+psql: error: connection to server at "10.10.11.141", port 5432 failed: FATAL:  password authentication failed for user "postgres"
+
+
+Şifre tanımı gerçeklememiş olabilir ? 
+
+select * from pg_shadow; --> server üzerinde şifre tanımı kontrolu yapılır.
+
+alter role postgres with password 'postgres'; --> şifre tanımı gerçekleştirilir.
+
+*/
+
+create role prod with password '1234' login superuser   ; 
+
+/*
+5.pg_hba Kimlik doğrulama ve Ağ,Port dinleme
+
+/*
+Client Authentication (Kimlik Doğrulama)
+https://www.postgresql.org/docs/current/auth-pg-hba-conf.html
+
+⭕️ Postgres, Kimlik doğrulama kuralları pg_hba.conf konfigurasyon dosyasının içinde tutulmaktadır.
+⭕️ Kurallar yukarında aşağıya doğru kontrol edilmektedir. ilk uyan kuralda tarama sonlanmaktadır.
+⭕️ pg_hba küme başlarken yüklenir sonrasında yapılan değişiklikler etkilenmesi için reload komutu yeterli olur. ℹ️ Production ortamlarında restart gerektiren durum oluşturmaz.
+
+ℹ️ sql_command, select * from pg_hba_file_rules;  ile serverda aktif kuralları görebiliriz. 
+
+
+/*----------------------------------------
+🔴  Concurrency Control (eşzamanlı erişimde kurallar)
+🌐 https://www.postgresql.org/docs/current/mvcc.html
+----------------------------------------
+
+🔸 Veritabanı sistemlerinde aynı veriye birden fazla kullanıcının aynı anda erişmesi ve işlemler yapması, veri tutarlılığı (data consistency) ve performans korumak için eklenmiş yapılar bulunmakta.
+
+1. Transaction Isolation  (MVCC)
+2. Explicit Locking  (LOCK mekanizması)
+
+/*----------------------------------------
+🔶 Multi-Version Concurrency Control (MVCC)
+🌐 https://www.postgresql.org/docs/17/glossary.html#GLOSSARY-MVCC
+----------------------------------------
+
+A mechanism designed to allow several transactions to be reading and writing the same rows without one process causing other processes to stall. In PostgreSQL, MVCC is implemented by creating copies (versions) of tuples as they are modified; after transactions that can see the old versions terminate, those old versions need to be removed.
+
+🔺 MVCC ile, okuyanlar yazanları / yazanlar ise okuyanları engellemeden çalışmasını sağlar. 
+
+🔺 Multi-version ifade ile her işlem başladığında o anlık  veritabanının versiyonuna sahip olur 
+(snapshot). satirlarda bulunan txid ile snapshot idi karşılaştırması ile lock mekanizmasına kullanılmadan paralel işlemler daha perfomanslı şekilde yürütülür. 
+
+*/*/*/*/
+
+create table test (c1 int);
+
+insert into test (c1) values(1);
+
+select xmin,*  from test ;
+/*
+🔺 Veri değişikliklerinde yeni satırlar oluşturulur veya eskisini geçersiz kılacak bir işaret alarak gerçekleşir.
+
+    delete işleminde, etkilenen satır fiziksel olarak silinmez sadece geçersiz kılınır.
+	insert işleminde, yeni satır yazılma işlemi gerçekleşir.
+	update işleminde, delete + insert combine
+
+🔺 delete ve update işlemleri sonucu oluşan hayelet satırlar bir süre sonra paralelde çalışan transactionların ihtiyaçı olmayacağı için boş yere tutulmuş olacaktır.
+
+❓ Oluşan hayalet satırlar ne oluyor❓
+
+https://www.postgresql.org/docs/17/glossary.html#GLOSSARY-Bloat
+💥BLOAT💥
+
+🔺 Space in data pages which does not contain current row versions, such as unused (free) space or outdated row versions.
+
+   Data pagelerinde kullanılmayan (boş) alan veya eski satır versiyonları gibi geçerli olmayan satıları içeren alan.
+
+☢️ Database bloat durumun takip edilmesi gerekir, 
+Gereksiz bloat alanı sorgu perfomansın düşmesine,fiziksel alanı tüketerek Postgres’in kapanmasına sebebiyet verecek durumlar oluşturabilir. ☢️
+
+❓ Bu olumsuz durum nasıl engelleniyor ❓
+Postgres de bu işlem vacuum/autovacuum süreci ile optimize edilmektedir.
+
+❓ MVCC kuralında paralel çalışan transaction gerçekleşen dml (delete/insert/update) işlemlerinde nasıl etkileniyor ❓
+
+Bir transaction bloğunda select attığım veriyi biri paralelde update ettiğinde , güncel halinimi göreceğim / eski halini görmeye devam mı edeceğim ? bu benzeri durumları,
+
+DML işlemlerin etkilerini sınırlayan SQL STANDARTI olan, 4 adet transaction isolation bulunmakta. 
+
+1️⃣ Dirty Read (Kirli Okuma) (postgres mümkün değil)
+🔸 Bir işlem, henüz commit edilmemiş başka bir işlemin yazdığı veriyi okur.
+🔸 Eğer diğer işlem rollback ederse, ilk işlem geçersiz veriyi okumuş olur.
+
+2️⃣ Non-repeatable Read (Tekrarlanamayan Okuma) (postgres varsayılan )
+
+🔸 Bir işlem, daha önce okuduğu bir veriyi tekrar okuduğunda, o veri başka bir işlem tarafından değiştirilmiş olabilir.
+🔸 Sonuç olarak, aynı işlem içinde veri farklı değerlerle görünebilir.
+
+begin; başladığımız bir transaction bloğunda ,
+select user_name  from account where id=5; --> profelis
+paralelde biri user_name günceller ise  tekrar select attıldığında
+select user_name  from account where id=5; --> profelis723  
+
+3️⃣ Phantom Read (Hayalet Okuma)
+
+🔸 Bir işlem, belirli bir filtreyle (örneğin “yaşı > 30 olanlar”) satırları getirir.
+🔸 Daha sonra aynı sorguyu tekrar çalıştırdığında, başka bir işlem yeni satırlar eklediği için gelen sonuç sayısı değişmiş olabilir.
+🔸 İlk sorguda olmayan satırlar “hayalet gibi” görünür.
+
+4️⃣ Serialization Anomaly (Sıralama Tutarsızlığı)
+🔸 Elimizde bir A bir B transaction olsun, Bu iki transaction farklı sırada çalışması veriye farklı sonuç gösterecek ise , bu durumu Serialization Anomaly olarak isimlendirilmektedir.
+🔸Bu durum sadece Serializable seviye ile önlenebilir.
+
+⚠️ READ COMMITTED ->->-> SERIALIZABLE , soldan sağa , sorguların paralel çalışma durumu  azalır ve lock yönetimi daha sıklaştığı için perfomans düşüsü gözükecektir.
+
+Varsayılan, Read committed ; 
+
+mvcc kuralın, isolation seviyeleri;
+
+
+/*--------------------------------------------------------------
+🌐https://www.postgresql.org/docs/current/explicit-locking.html
+🔶 Explicit-locking  / Doğrudan kilitler
+---------------------------------------------------------------
+
+🔺 PostgreSQL, tablolardaki verilere eşzamanlı erişimi kontrol etmek için çeşitli kilit modları bulunmakta.
+
+🔺MVCC, davranışından daha farklı olarak erişimlere sınırlama getirmek istediğimiz bu lock mekanizması kullanmamız gerekmektedir.
+Aynı şekilde DDL (data defination language) komutların yürütülmesi için arka plan postgres bu lockları kullanmaktadır. 
+
+Örn. alter table .. add column .. sırasında postgres tabloya  ACCESS EXCLUSIVE lock tipi koyacaktır.
+
+13.3. Explicit Locking #
+13.3.1. Table-Level Locks  (tablo seviyesinde lock türleri) 💥💥💥 
+13.3.2. Row-Level Locks (satır seviyesinde olan lock türleri) 💥
+13.3.3. Page-Level Locks (kullanıcı kullanamıyor. ram ile disk arasında page değişimlerinde.)
+13.3.4. Deadlocks (aynı datayı modifiye eden durumda ortaya çıkıyor.)  💥💥💥
+13.3.5. Advisory Locks (uygulama lock türleri)
+
+
+⭕️ 13.3.1. Table-Level Locks 
+
+🔺 Tüm tabloyu etkileyecek şekilde erişim sınırlaması getiren lock tipleridir.
+
+⚠️ Kullanıcılar farkında olmadan arka planda postgres bu lockları yürüteceği için bu lock tip hangi durumlarda ne seviyede erişim kısıtı getirdiği iyi anlaşılmalı. Çalışan transactionlar, Production ortamında oluşan kilitler ile sorgularda yanıt alamama durumu oluşabilir.
+
+8 tane table-level lock modumuz bulunmakta.
+1. ACCESS SHARE (AccessShareLock) 💥 tablo üzerinde değişklik yapamıyoruz. veri insert. 
+2. ROW SHARE (RowShareLock)
+3. ROW EXCLUSIVE (RowExclusiveLock)
+4. SHARE UPDATE EXCLUSIVE (ShareUpdateExclusiveLock)
+5. SHARE (ShareLock)
+6. SHARE ROW EXCLUSIVE (ShareRowExclusiveLock)
+7. EXCLUSIVE (ExclusiveLock)
+8. ACCESS EXCLUSIVE (AccessExclusiveLock)   💥💥💥 okuma yazmayı engelliyor 
+
+
+1️⃣ACCESS SHARE (AccessShareLock)
+Ne zaman alınır?: The SELECT command acquires a lock of this mode / cOPY to
+
+Kimle çakışır?: Conflicts with the ACCESS EXCLUSIVE lock mode only.
+Amaç: In general, any query that only reads a table and does not modify it will acquire this lock mode.
+
+Select sorgu attığımız tabloların üzerine görülen lock tipidir.
+Diğer sorguların tabloyu okumasına izin verir ama tablo yapısında değişiklik yapmasına izin vermez.
+
+Yalnızca "ACCES EXCLUSIVE" ile çakışma yaşanıyor bu lock tipinde.
+yani bir tablo select sorgusu çalışıyor ise.
+
+şu komutların paralelde çalıştıramayacağızdır.
+DROP TABLE, TRUNCATE, REINDEX, CLUSTER, VACUUM FULL,
+and REFRESH MATERIALIZED VIEW (without CONCURRENTLY) commands. 
+Many forms of ALTER INDEX and ALTER TABLE also acquire a lock at this level.
+
+*/*/
+
+create table if not exists test_lock (c1 int);
+insert into test_lock select generate_Series(1,10);
+
+
+select locktype,database,relation,mode
+from pg_locks order by page desc nulls last;
+
+-- hangi tablo olduğunu anlamak için. 
+
+select * from pg_class limit 10  --> catalog tablomuzda yararlanalım.
+
+select t2.relname,t1.mode
+from pg_locks t1 
+join pg_class t2 on t1.relation=T2.oid order by relname desc  
+
+
+https://docs.google.com/spreadsheets/d/1REviu5GLkic4_PA506yMtm1ZHCj__sjxk-uZf154HbY/edit?gid=0#gid=0
+
+/*
+⚠️ tabloya erişimi tamamen engelleyen komutlardan bazıları "ACCESS EXCLUSIVE"
+DROP TABLE
+TRUNCATE
+REINDEX
+CLUSTER
+VACUUM FULL
+REFRESH MATERIALIZED VIEW
+ALTER TABLE ADD COLUMN
+ALTER TABLE DROP COLUMN
+ALTER TABLE SET DATA TYPE
+ALTER TABLE SET/DROP DEFAULT
+ALTER TABLE DROP EXPRESSION
+ALTER TABLE ALTER CONSTRAINT 
+ALTER TABLE DROP CONSTRAINT
+ALTER TABLE RENAME
+
+
+
+create index  concurrently;
+
+concurrently parametresi alan komutlar, sistemde hafif lock koymaktadır.
+
+
+-- locklayan bir sorgunu tespiti 
+
+SELECT
+	    pid,
+	    datname,
+	    usename,
+	    application_name,
+	    client_addr,
+	    pg_catalog.to_char(backend_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS backend_start,
+	    state,
+	    wait_event_type || ': ' || wait_event AS wait_event,
+	    array_to_string(pg_catalog.pg_blocking_pids(pid), ', ') AS blocking_pids,
+	    query,
+	    pg_catalog.to_char(state_change, 'YYYY-MM-DD HH24:MI:SS TZ') AS state_change,
+	    pg_catalog.to_char(query_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS query_start,
+	    pg_catalog.to_char(xact_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS xact_start,
+	    backend_type,
+	    CASE WHEN state = 'active' THEN ROUND((extract(epoch from now() - query_start) / 60)::numeric, 2) ELSE 0 END AS active_since
+	FROM
+	    pg_catalog.pg_stat_activity
+	WHERE
+	    datname = (SELECT datname FROM pg_catalog.pg_database WHERE oid = 5)ORDER BY pid
+
+
+select pg_terminate_backend(1697);
+
+*/*
+--13.3.4. Deadlocks 
+
+Deadlock (kilitlenme), iki (veya daha fazla) işlemin (transaction’ın) birbirinden kaynaklı olarak sonsuz beklemeye girmesi durumudur. Her biri, diğerinin kilitlediği kaynağa ihtiyaç duyar ama hiçbiri geri adım atmaz. Sonuç? Sonsuz bekleme, yani deadlock.
+
+Gerçekleşme durumu ?
+Transaction A, veri satırı X’i kilitler.
+Transaction B, veri satırı Y’yi kilitler.
+Transaction A, Y’yi de kilitlemeye çalışır   ➡ ama B zaten kilitlediği için bekler.
+Transaction B, X’i kilitlemeye çalışır ➡  ama A kilitlediği için o da bekler.
+
+Bu durumda iki işlem birbirini kilitler, PostgreSQL bunu fark eder ve birini iptal ederek deadlock’ı çözer.
+
+-- > postgresql.conf
+show deadlock_timeout;
+alter system set deadlock_timeout to '1hour';
+select * from pg_settings where name ='deadlock_timeout'; 
+
+-- Bölüm -3 bgwriter and checkpointer
+
+select * from pg_database ;
+
+select relfilnode,* from pg_class limit 10  --> index, view, tablo, 
+
+test_lock, 16389
+
+10gb tablo olduğunda 
+
+16389
+16389.1
+16389.2
+
+Disk -> base -> (1gb) file segment  -> data_pages (8kb) ->  8byte
+ramde -> en büyük postgres shared_buffers postgresin yönettiği cache alanı. 
+disk data_pages(8kb) <-> linux cache  <-> shared_buffer (8kb) (buffer_page)
+disk dirty_page , 
+shared_buffer dirty_buffer
+
+
+-- Postgresql Çalışan Processler
+-- 🌐 https://www.postgresql.org/docs/current/glossary.html#GLOSSARY-AUXILIARY-PROC
+
+/*
+A process within an instance that is in charge of some specific background task for the instance. 
+The auxiliary processes consist of 
+the autovacuum launcher (but not the autovacuum workers), 
+the background writer , (+) 
+the checkpointer,  (+)
+the logger, 
+the startup process, 
+the WAL archiver, 
+the WAL receiver (but not the WAL senders), and 
+the WAL writer.
+*/
+
+select distinct backend_Type from pg_stat_activity; 
+
+select * from pg_stat_activity;  --> sistem anlık ne çalışıyor ? 
+
+
+-- 🔴 PostgreSQL’de bgwriter ve checkpointer 🔴
+--------------------------------------------------
+1.Checkpointer ( yaptığı iş: checkpoint ,dirty page temizleme)
+2.Background writer   ( yaptığı iş: dirty page temizleme)
+
+
+/*----------------------------------------
+🌐 https://www.postgresql.org/docs/current/glossary.html#GLOSSARY-CHECKPOINTER
+
+
+⭕️ CHECKPOINTER (process)
+----------------------------------------
+🔸An auxiliary process that is responsible for executing checkpoints.
+
+"CHEKCPOINT" işlemini gerçekleştirmeden sorumlu yardımcı process.
+
+🌐 https://www.postgresql.org/docs/16/glossary.html#GLOSSARY-CHECKPOINT
+⭕️ Checkpoint  Wal,dirty buffer, ram - sync - disk
+
+shared_buffer dirty_buffer lar birikiyor, 
+
+checkpointer ->  shared_buffer, dirty_pagelerimiZ -> diske yazılıyor.
+t anı pg_Wal wal dosyasına not olarak düşülüyor.
+
+🔺checkpointer -> checkpoint tetiklendiğinde shared bufferdaki dirty bufferların tamamı (değişikliğe uğramış data pages) diske yazılma süreci başlar. ve memory ile diskteki veri sync durumuna geldiği t anında checkpoint noktası olarak wal dosyasına yazılır.
+
+🔺Bu sayede crash anında en son gerçekleşen checkpoint noktasından itibaren wal dosyaları tekrardan okunarak veri bütünlüğüne erişilmiş olur. Crash recovery süresini kısaltır. 
+Recovery time objective (RTO) süresi.
+
+🔺Checkpointer, checkpoint_timeout ve max_wal_size parametrelerine göre checkpoint sürecini başlatır.
+
+🔺Checkpoint süreci başladığında memorydeki tüm dirty bufferları diske yazılması işlemi başlayacağı için sistemde yüksek I/O yükü ⚠️ oluşturabilir. Bu nedenle, bu yükün parametreler aracılığıyla zamana yayılması ve daha yatay, dengeli bir I/O grafiği oluşturacak şekilde yapılandırılması önerilir.
+
+Özet: Checkpointer, checkpoint sürecini başlatır,dirty bufferlarımız diske yazılır ve wal loglarına bu t anının zamanı kaydı yazılır.
+*/
+
+select name,setting,unit,short_Desc,category 
+from pg_settings where short_Desc like '%checkpoint%';
+-- checkpoint süreci ile alakalı parametreler.
+
+
+/*----------------------------------------
+🌐 https://www.postgresql.org/docs/16/runtime-config-wal.html#RUNTIME-CONFIG-WAL-CHECKPOINTS 
+⭕️ Checkpointer ayarları. 
+----------------------------------------
+
+CHECKPOINT komutu çalıştırıldığında
+PostgreSQL servisi durdurulduğunda  (immediate olarak durdurulmadığında)
+, yedekten dönüş yapıldığında
+Veritabanı oluşturma, silme
+
+Veritabanı tablespace ler arasında taşındığında
+pg_start_backup komutu işletildiğinde 
+
+checkpoint_timeout süresi dolduğunda
+max_wal_size değerine erişildiğinde
+
+
+https://github.com/postgres/postgres/blob/master/src/backend/utils/misc/postgresql.conf.sample
+
+# - Checkpoints -
+#checkpoint_timeout = 5min		# range 30s-1d
+#checkpoint_completion_target = 0.9	# checkpoint target duration, 0.0 - 1.0
+#checkpoint_flush_after = 0		# measured in pages, 0 disables
+#checkpoint_warning = 30s		# 0 disables
+#max_wal_size = 1GB
+#min_wal_size = 80MB
+
+
+
+🔶checkpoint_timeout (integer) (varsayılan 5min)
+Maximum time between automatic WAL checkpoints. 
+If this value is specified without units, it is taken as seconds. 
+The valid range is between 30 seconds and one day. 
+The default is five minutes (5min). 
+Increasing this parameter can increase the amount of time needed for crash recovery.
+This parameter can only be set in the postgresql.conf file 
+or on the server command line.
+
+🔸 Checkpointer Process, son gerçekleşen checkpoint üzerinden checkpoint_timeout parametresi belirlenen zaman geçmiş ise  checkpoint sürecini başlatır.
+
+
+ℹ️ Bu parametrenin artırılması ⬆️, çökme (crash) sonrası veritabanının yeniden hazır duruma gelme süresini (recovery time) uzatabilir.
+Buna karşılık, azaltılması ⬇️ ise daha sık checkpoint oluşmasına neden olarak disk üzerinde I/O yükünü artıracaktır.
+
+🔶checkpoint_completion_target (integer) (varsayılan 0.9)  v13 0.5
+
+🔸 Checkpoint sırasında bellek üzerindeki "dirty buffer"ların (değişikliğe uğramış sayfalar) diske yazılması, ani bir I/O yükü oluşturmaması için zaman yayılmasını sağlar.
+
+checkpoint_timeout 5dk , sürecin 4dk lık kısmında yazma işle gerçekleşecek, checkpoint -> pg_wal
+
+checpoint tamamlandı, 5dk uyuyor, checkpoint tetikleniyor.
+
+checkpoint tetikleniyor. 5dk çalışacak ,  4dk  (checkpoint_completion_target , 1dk boşta checkpoint,  uykuya dalmış 5dk uyama,
+
+
+🔶 max_wal_size (integer)  default: 1GB
+
+🔸En son yapılan checkpoint noktasından itibaren max_wal_size büyüklüğünde wal dosyası yazılır ise, checkpoint tetiklenir.
+
+☢️ bu parametre soft limitdir. İsminde max_wal_size geçmesi maximum pg_wal dizininde birekecek logların boyutunu sabit tutmayabilir.
+
+⚠️ checkpoint sürecinin ,max_wal_size yerine checkpoint_timeout ile tetiklenmesi beklenir bu sayade I/O yükü checkpoint_timeout ile tetiklenerek daha az dalganmalar ile zamana yayılmış olur.
+
+log kaydında;
+checkpoint starting: wal şeklinde kayıtlar çok fazla gözüküyor ise. max_wal_size boyutu yüksetilmesi düşünülmelidir.
+LOG:  checkpoints are occurring too frequently (4 seconds apart)
+HINT:  Consider increasing the configuration parameter "max_wal_size".
+LOG:  checkpoint starting: wal 
+
+
+min_wal_size <  wal_dizini < max_wal_size (wal_keep_size)  üst limit 
+
+archive_command açık değil ise  archive başarılı olsayaa kadar waller silmeyecektir.
+
+
+Bir diğer seçenek. log kayıtlarına cat * | grep "checkpoint" şeklinde tarama yapılarak. düşen loglarda
+checkpoint starting: time
+checkpoint starting: time
+checkpoint starting: time
+gözükmesi beklenir. 
+checkpoint starting: wal  kaydının daha az görülmesi için 
+alter system max_wal_size to '100GB'; select pg_reload_conf();
+
+pg_wal <- max_Wal_Size (100GB) <- wal_keep_Size (500GB) replikasyon dizginliyebilyor.
+
+Checkpoint, shared_bufferda update/delete/insert işlemlerinden etkilenen tabloları, kalıcı değişiklerini diske yazıyor. dirty_pages -> disk
+
+❓❓❓
+checkpoint süremizi 15dk ayarladık. shared_bufferda update/delete/insert işlemleri shared_buffer'daki alanımızı doldurduğunda ne yaşanıyor. 
+❓❓❓
+
+client_backend , shared_buffer yer kalmadığı durumda, drity_buffer temizliğini üstlenir. 
+
+/*----------------------------------------
+🌐https://www.postgresql.org/docs/16/runtime-config-resource.html#RUNTIME-CONFIG-RESOURCE-BACKGROUND-WRITER
+⭕️ Background writer, bgwriter , lazy writer 
+----------------------------------------
+
+
+select name,setting,short_desc from pg_Settings where name like '%bgwriter%';
+*/*/
+-- BgwriterHibernate uyku modunda
+select wait_Event_type,wait_event,backend_Type,* 
+from pg_stat_Activity where backend_type='background writer';
+
+There is a separate server process called the background writer, 
+whose function is to issue writes of “dirty” (new or modified) shared buffers. 
+When the number of clean shared buffers appears to be insufficient, 
+the "background writer" writes some dirty buffers to the file system and marks them as clean. 
+This reduces the likelihood that server processes handling "user queries will be unable to find clean buffers and have to write dirty buffers themselves" 
+
+/*
+
+🔸bgwriter_delay (integer)  default 200 ms -> 20ms
+
+Background Writer (bgwriter), her 200 ms'de bir tetiklenerek temizlenmesi gereken dirty page'ler var mı diye kontrol eder.
+
+🔸bgwriter_lru_maxpages default 100  -> 500
+
+bgwriter tetiklendiğinde maxiumum ne kadar page temizleyeceği. 
+
+🔸 bgwriter_lru_multiplier	default 2 
+Bir önceki turda yazılan dirty page sayısını bu çarpan kadar katını temizler.
+
+Bu sayede bgwriter, sistem yoğun yük altındayken daha agresif, düşük yükteyken ise daha sakin çalışır.
+*/*/
+
+select pg_size_pretty(8096*500::numeric*50)
+
+-- select * from pg_stat_bgwriter; üzerinde maxwritten_clean zamanla hızlı yükselme eğilimnde olmaması gerekir.
+
+-- ⚠️ Eğer maxwritten_clean değeri hızlı yükselişte ise, bu bgwriter’ın sayfa yazma sınırına sık sık ulaştığını belirtisidir. 
+
+Not:
+bgwriter_lru_multiplier yükseltilebilir. 2->4
+bgwriter_delay azaltılabilir. 200ms -> 20ms
+bgwriter_lru_maxpages yüsektilebilir -> 100 -> 500
+
+/*----------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/maintenance.html
+⭕️ Postgresde ileri düzey bakım işlemleri
+------------------------------------------------------------------
+
+PostgreSQL, like any database software, 
+requires that certain tasks be performed regularly to achieve optimum performance. 
+
+🔸 PostgreSQL, diğer veritabanı sistemleri gibi belirli bakım işlemlerinin düzenli olarak yürütülmesini gerektirir.
+
+Bu sayede, veritabanının performansı optimum seviyede tutulabilir.
+
+PostgreSQL is low-maintenance compared to some other database management systems. 
+Nonetheless, appropriate attention to these tasks will  
+go far towards ensuring a pleasant and productive experience with the system.
+
+🔸PostgreSQL, diğer bazı veritabanı sistemleriyle karşılaştırıldığında daha az bakım ihtiyacı duyar. Ancak, yüksek performanslı ve sürdürülebilir bir sistem hedefliyorsak bu bakım süreçlerin sağlıklı şekilde yürütülmesine gereken önemi mutlaka vermeliyiz.
+
+24.1. Routine Vacuuming 
+24.2. Routine Reindexing
+
+
+/*----------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/16/routine-vacuuming.html 
+⭕️ vacuum rutini
+------------------------------------------------------------------
+PostgreSQL databases require periodic maintenance known as vacuuming. 
+For many installations, it is sufficient to let vacuuming be performed by the autovacuum daemon.
+
+🔺Postgresql dünyasında, yapılan bakım işlemlerine "vacuuming" olarak isimlendirilmektedir. 
+
+🔺Bu işlemi arka tarafta postgresql server başladığında çalışmaya başlayan "autovacuum daemon" otomatik olarak gerçekleşmesi sağlamaktadır.
+
+Some database administrators will want to supplement or 
+replace the daemon's activities with manually-managed VACUUM commands,
+
+🔺Autovacuum daemon, birçok durumda yeterli olsa da, manuel vacuum komutu ile desteklenmesi gerekebilir.
+
+🔺 Bu eğitimin ilerleyen bölümlerinde, manuel vacuum işlemlerinin hangi durumlarda gerekli olabileceğini birlikte yorumlayacak ve ilgili bilgilere detaylı şekilde değineceğiz.
+
+
+25.1.1. Vacuuming Basics 
+PostgreSQL's VACUUM command has to process each table on a regular basis for several reasons:
+
+1. To recover or reuse disk space occupied by updated or deleted rows.
+2. To update data statistics used by the PostgreSQL query planner.
+3. To update the visibility map, which speeds up index-only scans.
+4. To protect against loss of very old data due to transaction ID wraparound 
+or multixact ID wraparound.
+
+VACUUM komutu sayesinde:
+
+🔹 Update veya delete işlemleri sonucu oluşan hayelet satırların kapladığı disk alanını geri kazandırır.
+
+🔹 İstatistikleri güncelleyerek, sorgu planlayıcısının daha doğru kararlar almasını ve sorguların daha hızlı çalışmasını sağlar.
+
+🔹 Visibility Map'i günceller, bu da index-only scan (sadece index kullanılarak yapılan taramalar) taramasının gerçekleşmesini sağlar.
+
+🔹 Transaction ID sarmalanması (ID wraparound) nedeniyle oluşabilecek veri kaybını önler.
+
+
+VACUUM süreçleri, ya performans iyileştirmesi sağlar ya da oluşabilecek felaketlerin önüne geçer.
+
+
+⭕️ Recovering Disk Space 
+
+In PostgreSQL, an UPDATE or DELETE of a 
+row does not immediately remove the old version of the row. 
+This approach is necessary to gain the benefits of multiversion concurrency control 
+(MVCC, see Chapter 13): the row version must not be deleted while it is 
+still potentially visible to other transactions. 
+But eventually, an outdated or deleted row version is no longer of 
+interest to any transaction. The space it occupies must then be reclaimed 
+for reuse by new rows, to avoid unbounded growth of disk space requirements.
+This is done by running VACUUM.
+
+vacuum table_name ;  dead_tuple tekrar kullanıbilir
+
+🔺 DISK ALANININ GERI KAZANILMASI 
+
+Postgres "MVCC" yapısı gereği modifiye edilen satırı diğer transactionlar 
+tarafından hala görülebilir olacağı için sistemden kaldırmıyor. Bunları "dead_tuple"
+olarak işaretliyor.
+
+Bir süre sonra bu eski versiyonların diğer transactionlar içinde anlamı olmayacağı 
+için boş yere diskte yer kaplamış olacaklardır.
+
+Bu "dead_tuple" ların tabloda çok fazla birikmesi sonucu oluşan ve
+geri kullanıma kazanılmayan alan sorununa Postgres dünyasında 💥BLOAT💥 olarak isimlendirilir.
+
+Bloat durumununun oluşmaması için "VACUUM" süreçinin değişiklik olan tablolarda yürütülmesi gerekir.
+
+Normal koşullarda bu işlem, autovacuum mekanizması tarafından otomatik olarak gerçekleştirilir.
+
+Ancak veritabanımızın sağlıklı şekilde işlediğinden emin olmak için, autovacuum'un görevini yerine getirip getirmediğini zaman zaman manuel olarak kontrol etmek faydalı olacaktır.
+
+📖 Vacuum komutu nasıl etki ediyor, ve bloat sorunu nedir incelemek için örnekler yapalım.  
+
+🌐 https://www.postgresql.org/docs/16/monitoring-stats.html#MONITORING-PG-STAT-ALL-TABLES-VIEW
+
+🔸 Bu durumu tespit etmede yardımcı olacak istatiksel tablolar ve sorgular 
+*/*/
+/*
+alter system set autovacuum to off; select pg_Reload_conf();
+select distinct backend_type from pg_stat_activity; --> autovacuum launcer gözükmüyor.
+*/
+
+create table test_bloat (c1 int) ;
+
+select n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 0
+
+-- 🌐https://www.postgresql.org/docs/16/functions-admin.html#FUNCTIONS-ADMIN-DBOBJECT
+select pg_total_relation_size('test_bloat'); --> tablomun boyutu 0 
+
+insert into test_bloat select generate_Series(1,1_000_000);
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler
+
+select pg_total_relation_size('test_bloat'); --> tablomun boyutu 36282368 byte
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 35 MB tablomun boyutu.
+
+insert into test_bloat select generate_Series((1000000*1)+1,1000000*2); --1m satır daha 
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler
+
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB tablomun boyutu.
+
+-- aradan bir satırlar sileceğim
+
+delete from test_bloat where c1 > 500000 and c1 <= 750000; --250bin satır silelim
+
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+--n_dead_tup 250000	gözüküyor.
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> silme işleminde sonra tablo boyutu değişmedi.
+-- ℹ️bu adımda bloat oluşmaya başlamış oldu. tablo üzerinde işimize kullanım dışı kalan alan oluştu.
+
+-- sildiğim satırları geri insert etsem ne olacak ? 
+insert into test_bloat select generate_Series(500001,750000);
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+--n_dead_up 250bin hala
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 78 MB Tablo daha fazla yer kapladı.
+
+-- ⚠️ tabloda sildiğimiz satırların yerine dolmadı. sistemde yeni yer kaplamış oldu. 
+
+-- aynı işlemi , delete , vacuum , insert şeklinde tekrar deneyelim ne olacak ?
+
+truncate table test_bloat
+select pg_stat_reset()  --> istatik tabloların resetleme komutu
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+insert into test_bloat select generate_Series(1,1000000);
+insert into test_bloat select generate_Series((1000000*1)+1,1000000*2); --1m satır daha insert
+
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+16395	0	2000000	2000000	0	2000000
+
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB Tablo .
+
+delete from test_bloat where c1 > 500000 and c1 <= 750000; --250bin satır silelim
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+--n_dead_tup 250bin
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB Tablo silme işlemi olduğu halde .
+
+vacuum ( verbose ) test_bloat;
+/*
+INFO:  vacuuming "egitim_723.public.test_bloat"
+INFO:  finished vacuuming "egitim_723.public.test_bloat": index scans: 0
+pages: 0 removed, 8850 remain, 8850 scanned (100.00% of total)
+tuples: 💥250000 removed💥, 1750000 remain, 0 are dead but not yet removable
+removable cutoff: 805, which was 0 XIDs old when operation ended
+new relfrozenxid: 802, which is 1 XIDs ahead of previous value
+frozen: 2 pages from table (0.02% of total) had 182 tuples frozen
+index scan not needed: 1107 pages from table (12.51% of total) had 250000 dead item identifiers removed
+avg read rate: 0.000 MB/s, avg write rate: 42.298 MB/s
+buffer usage: 17707 hits, 0 misses, 459 dirtied
+WAL usage: 11067 records, 1109 full page images, 2186614 bytes
+system usage: CPU: user: 0.08 s, system: 0.00 s, elapsed: 0.08 s
+VACUUM
+*/
+
+-- tablo üzerindeki 250000 dead_tuple tekrar kullanıma açılmış oldu. 
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+
+-- n_dead_tup gözükmüyor artık tablomda .
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB .
+
+-- insert işlemini gerçekleştiriyorum.
+-- sildiğim satırları geri insert etsem ne olacak ? 
+insert into test_bloat select generate_Series(500001,750000);
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB tablo boyutum yükselmedi.
+
+
+select  * from pg_Class where relname ='test_bloat' limit 10 
+
+
+/* 
+Burada vacuum işlemi ile tablo ait _fsm dosyasında  data_pageler içindeki veri tutmaya müsait alanların bilgisi güncelleniyor.
+
+*/
+
+-- select relfilenode from pg_class  where relname='test_bloat';
+[postgres@localhost 16388]$ ls -larth  | grep 25336
+rw-------. 1 postgres postgres  40K Nov  3 11:44 25336_fsm
+rw-------. 1 postgres postgres 8.0K Nov  3 11:45 25336_vm
+rw-------. 1 postgres postgres  70M Nov  3 11:49 25336
+
+
+-- 🧹 VACUUM ile geri kazanılan alan, yalnızca tabloya gelecek yeni veriler için kullanılabilir hâle gelir.
+
+-- 📌 Eğer dead tuplelar olduğu alan, tablomuzun son kısımlarında yer alıyorsa,  disk sistemi tarafından yeniden kullanıma açılır.  💥SHRINK💥 .
+
+--Senaryo:
+Örneğin :
+delete from .... where rec_time < current_Date - '1year'::interval;
+tablomunuz %90 lık veri temizliği sonrasında vacuum komutu çalıştı ama sistemin kullanıma açılmadığını görebiliriz.  
+
+-- Bunu örnek ile anlamaya çalışalım.
+-- truncate table test_bloat
+-- select pg_stat_reset()
+
+insert into test_bloat select generate_Series(1,1000000);
+insert into test_bloat select generate_Series((1000000*1)+1,1000000*2); --1m satır daha insert
+
+select relid,n_tup_del,n_tup_ins,n_live_tup,n_dead_tup,n_ins_since_vacuum 
+from pg_stat_user_tables where relname ='test_bloat'; --> tabloma ait bir takım bilgiler 
+
+select n_dead_tup from pg_stat_user_tables where relname ='test_bloat' limit 10 
+
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB tablo 
+
+-- aradan satırlar silelim
+
+delete from test_bloat where c1 > 500000 and c1 <= 1000000;
+
+
+select n_dead_tup from pg_stat_user_tables where relname ='test_bloat' --> 500.000
+
+vacuum verbose test_bloat;
+
+select n_dead_tup from pg_stat_user_tables where relname ='test_bloat' --> 0
+
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB tablo 
+
+-- fiziksel olarak page bloğun başında emin olduğum 250bin veriyi silelim
+
+delete from test_bloat where c1 < 250000 ;
+
+select n_dead_tup from pg_stat_user_tables where relname ='test_bloat' --> 249999
+
+
+vacuum verbose test_bloat;
+
+/*
+INFO:  vacuuming "postgres.public.test_bloat"
+INFO:  finished vacuuming "postgres.public.test_bloat": index scans: 0
+pages: 0 removed, 8850 remain, 1108 scanned (12.52% of total)
+tuples: 💥249999💥 removed, 1312512 remain, 0 are dead but not yet removable
+removable cutoff: 824358, which was 0 XIDs old when operation ended
+frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+buffer usage: 2227 hits, 0 misses, 0 dirtied
+WAL usage: 2215 records, 0 full page images, 625277 bytes
+system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+VACUUM
+*/
+
+select n_dead_tup from pg_stat_user_tables where relname ='test_bloat' --> 0
+
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 69 MB tablo
+
+
+-- sondan 250bin satırı silmeyi deneyelim
+delete from test_bloat where c1 > (select max(c1) - 250000 from test_bloat)  ;
+
+vacuum verbose test_bloat;
+
+select n_dead_tup from pg_stat_user_tables where relname ='test_bloat' --> 250000
+vacuum verbose test_bloat;
+/*
+
+INFO:  vacuuming "postgres.public.test_bloat"
+INFO:  table "test_bloat": truncated 8850 to 7744 pages
+INFO:  finished vacuuming "postgres.public.test_bloat": index scans: 0
+pages: 💥1106 removed💥, 7744 remain, 1107 scanned (12.51% of total)
+tuples: 💥250000 removed💥, 1148419 remain, 0 are dead but not yet removable
+removable cutoff: 824359, which was 1 XIDs old when operation ended
+frozen: 0 pages from table (0.00% of total) had 0 tuples frozen
+index scan not needed: 0 pages from table (0.00% of total) had 0 dead item identifiers removed
+avg read rate: 0.000 MB/s, avg write rate: 0.000 MB/s
+buffer usage: 3336 hits, 0 misses, 0 dirtied
+WAL usage: 2217 records, 0 full page images, 625367 bytes
+system usage: CPU: user: 0.01 s, system: 0.00 s, elapsed: 0.01 s
+VACUUM
+*/
+
+select n_dead_tup from pg_stat_user_tables where relname ='test_bloat' --> 0
+select pg_size_pretty(pg_total_relation_size('test_bloat')); --> 61MB boyut değişdi.
+
+-- Çok yoğun UPDATE ve DELETE işlemlerinin gerçekleştiği tablolarda, özellikle de silinen veya güncellenen verilerin yerine aynı oranda yeni veri gelmeyecekse, tabloda bloat (şişme) oluşabilir.
+/*
+
+❓❓❓ bloat durumunda olan tabloları tespiti nasıl gerçekleştirebiliriz  ❓❓❓ 
+
+Veritabanınmda bu durumda sistem kullanıma açacağım alana sahip tabloları nasıl tespit ederiz ? 
+Ne kadar  bloat durumuna  sahip olduğunu bir tablonun  nasıl anlarız ?
+
+-- ⭕️ https://www.postgresql.org/docs/16/pgfreespacemap.html 
+-- bloat table oranın tespit edilmesinde 1. yöntem
+
+create extension pg_freespacemap; 
+
+-- eklentin güncel tablo bilgilerini alabilimesi vacuum çalışmış olması gerekiyor. fsm tablosunu analiz ediyor.
+*/
+SELECT * FROM pg_freespace('test_bloat') where avail >0 ; --her bloktaki kullanılabilir alan miktarı
+
+SELECT pg_size_pretty(count(*)*8*1024) total_size, --bir page 8kb veri tutulduğuna göre.
+			 pg_size_pretty(sum(avail)) free_size, --> bloat size alanımız
+			 pg_size_pretty(pg_relation_size('test_bloat')) -- tablonun boyutu
+FROM pg_freespace('test_bloat') ; 
+
+--https://www.postgresql.org/docs/17/pgstattuple.html --> büyük tablolarda yavaş çalışıyor.
+create extension pgstattuple; --> pgstattubple 
+
+select * from pgstattuple('test_bloat'); --> PostgreSQL'de bir tablonun gerçek doluluk oranını, boşlukları ve ölü satırları doğrudan fiziksel olarak tarayarak analiz eder. 
+
+select *,pg_size_pretty(free_space) from pgstattuple('test_bloat'); 
+-- tabloda sistemden ayrılan kaynak 26mb büyüklüğünde bloat durumu gözlemleniyor.
+
+--⚠️ Bloat durumun giderilmesi için table 💥rewrite💥 işlemi gerçekleşmesi gerekiyor.
+
+A rewrite means a completely new copy of the table is created, and then the old one is dropped.
+
+create table test_bloat_new as select * from test_bloat;
+-- bu şekilde veriyi tekrardan yazılmasını sağlarsam. yeni tablo için tablodaki bloatsız veri alanı kadar yer gerekecektir.
+
+select *,pg_size_pretty(free_space) from pgstattuple('test_bloat')
+union all
+select *,pg_size_pretty(free_space) from pgstattuple('test_bloat_new')
+-- yeni tabloda sistemden ayrılan kaynak gitti yani bloat durumu ortadan kalmış oldu.
+
+-- eski tabloyu droplayıp , yeni tablonun ismini eski isimle değiştirebilirim.
+
+-- Yeni Tablo oluşturup verilerimizi taşımadan var olan bir tablo bloat durumunu nasıl gideririz ?
+
+
+/*
+Tip
+Plain VACUUM may not be satisfactory when a table contains large 
+numbers of dead row versions as a result of massive update or delete activity.
+If you have such a table and you need to reclaim the excess disk space it occupies,
+you will need to use VACUUM FULL, 
+
+vacuum table_name
+
+vacuum full table_name;
+
+or alternatively CLUSTER or one of the table-rewriting variants of ALTER TABLE. 
+These commands rewrite an entire new copy of the table and build new indexes for it.
+All these options require an 💥ACCESS EXCLUSIVE lock.💥 
+
+🔸 Postgres rewrite işlemi gerçekleştiren iki bakım komutu bulunmakta.
+- vacuum full (tablodaki verilerin tekrardan diske yazılması.)
+- cluster     (tablodaki verilerin belirtilen indexe göre ile tekrardan diske yazılması.)
+
+cluster table_name; --> not. tablo üzeirnde cluster index tanımı çalışmış ise. vacuum full yerine tercih edilebilir.
+
+
+☢️ rewrite işlemlerine uğrayan tablolarda vacuum,analyze işlemi yürütülmesi gerekir. AKSİ durumda sorgulardan beklenen perfomans görülmeyecektir. ☢️
+
+1. adım  vacuum full table_name;
+2. adım  vacuum analyze table_name;
+
+*/
+SELECT pg_size_pretty(count(*)*8*1024) total_size, --bir page 8kb veri tutulduğuna göre.
+			 pg_size_pretty(sum(avail)) free_size, --> bloat size alanımız
+			 pg_size_pretty(pg_relation_size('test_bloat')) -- tablonun boyutu
+FROM pg_freespace('test_bloat') ; 
+
+select * from pg_Stat_user_tables limit 10 
+
+/*----------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/17/sql-vacuum.html
+⭕️ vacuum komutu
+-------------------------------------------------------------------
+
+🔸 FULL
+Selects “full” vacuum, which can reclaim more space, but takes much longer and exclusively locks the table. This method also requires extra disk space, since it writes a new copy of the table and doesn't release the old copy until the operation is complete. Usually this should only be used when a significant amount of space needs to be reclaimed from within the table.
+
+VACUUM FULL, hedef tablo üzerinde ACCESS EXCLUSIVE seviyesinde kilit alır.
+Bu, işlem süresince tabloya herhangi bir okuma veya yazma işleminin yapılamayacağı anlamına gelir.
+
+VACUUM FULL işlemi sırasında tablo, tamamen yeniden yazılır.
+Bu nedenle:
+• Yeni tablo kopyası oluşturulurken, diskte yeterli boş alanın bulunması gerekir.
+• İşlem tamamlanana kadar, eski tablo kopyası silinmez.
+
+10TB tablo ,  5TB alanın silindi. vacuum = 10TB
+
+VACUUM FULL genellikle büyük miktarda boş alanı geri kazanmak için tercih edilir, ancak dikkatli planlanmalı ve yoğun saatlerde çalıştırılmamalıdır.
+*/
+
+
+SELECT pg_size_pretty(count(*)*8*1024) total_size, --bir page 8kb veri tutulduğuna göre.
+			 pg_size_pretty(sum(avail)) free_size, --> bloat size alanımız
+			 pg_size_pretty(pg_relation_size('test_bloat')) -- tablonun boyutu
+FROM pg_freespace('test_bloat') ; --> 61MB, 26MB
+
+
+select n_live_tup, vacuum_count from pg_stat_user_tables where relname='test_bloat'; 
+
+
+vacuum (full,verbose) test_bloat; -- tablomuza vacuum full atalım ve bloat alanın sisteme kazandıralım.
+
+select n_live_tup, vacuum_count from pg_stat_user_tables where relname='test_bloat'; 
+/*
+🔸 vacuum_count yükselmedi. 
+🔸 💥💥 vacuum full,cluster kullandığım durumda sonrasında vacuum,analyze table_name işlemi gerçekleştirilmeli. 
+*/
+
+10 TB- 9TB bloat = 1tb gerçek verimiz var,  , 1TB veriye yazma süresi boyunca kesinti olackatır. 
+/*
+ÖZET:
+
+1️⃣ MVCC (Multi-Version Concurrency Control) yapısı gereği, veritabanından gerçekleşen UPDATE ve DELETE işlemleri, dead_tuple olarak adlandırılan geçersiz satırların oluşmasına neden olur.
+
+2️⃣ Bu satırların yeniden kullanılabilir hale gelmesi için PostgreSQL’in VACUUM süreci devreye girer.
+VACUUM, free space map (FSM) yapısını güncelleyerek bu alanların tekrar veri yazımı için kullanılmasını sağlar.
+
+Ancak bu boşluklar sayfa (page) sonlarında yer alıyorsa, PostgreSQL bu alanları sistem kullanımına açabilir (SHRINK).
+
+3️⃣ Eğer tabloda çok sayıda değişiklik işlemi gerçekleşiyor ve oluşan dead_tuple alanları tablo tarafından tekrar kullanılmıyorsa, tablo içerisinde bloat oluşur.
+
+Bu durumda, tabloyu baştan yazarak boş alanları fiziksel olarak serbest bırakacak VACUUM FULL veya CLUSTER gibi komutlar kullanılmalıdır.
+
+⚠️ Bu işlemler tabloyu ACCESS EXCLUSIVE LOCK ile kilitler, yani işlem süresince tabloya hiçbir erişim yapılamaz.
+
+4️⃣ VACUUM FULL veya CLUSTER işlemlerinden sonra, PostgreSQL’in sorgu planlayıcısının sağlıklı çalışması için VACUUM ANALYZE komutunun da yürütülmesi önerilir.
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
