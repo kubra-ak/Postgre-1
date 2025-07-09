@@ -1,0 +1,604 @@
+💼 CALISMA XXX
+
+1- replication işlemleri gerçekleştirecek bir kullanıcı oluşturulur.
+
+psql -c "create role replicator with replication login password 'replicator'" ;
+
+2- masterda pg_hba.conf içinde standby sunucusun ip si tanımlanır.
+
+nano /pgdata/pg16/pg_hba.con
+
+host    replication     replicator      standby_ip/32               scram-sha-256
+
+2-  standby sunucuda pg_basebackup komutu ile master kopyasını alınması işlemi başlatılır.
+
+ /usr/lib/postgresql/17/bin/pg_basebackup -h master_ip -p 5432 -U replicator   -D /data/pg17_replika  -Xs -P -v --slot=ankara -C --checkpoint=fast -R
+
+
+-Xs slot oluşturma komutu.
+-P ne kadar % ilerlediği basebackup
+-R aldığımız basebackup standby moduna hazır hetirmiş oluyor. start an replica moduna çalışmaya başıyor
+
+
+Replicator parolası girdikten sonra süreç hata vermez ise aşağıdaki gibi tamamlanacaktır.
+
+Password: 
+pg_basebackup: initiating base backup, waiting for checkpoint to complete
+pg_basebackup: checkpoint completed
+pg_basebackup: write-ahead log start point: 0/4000060 on timeline 1
+pg_basebackup: starting background WAL receiver
+pg_basebackup: created replication slot "ankara"
+68033/68033 kB (100%), 1/1 tablespace                                         
+pg_basebackup: write-ahead log end point: 0/4000138
+pg_basebackup: waiting for background process to finish streaming ...
+pg_basebackup: syncing data to disk ...
+pg_basebackup: renaming backup_manifest.tmp to backup_manifest
+pg_basebackup: base backup completed
+
+3- Standby serverımızda postgresin bir kopyası hazır . Bu replikayı başlatmak için 
+
+
+/usr/lib/postgresql/17/bin/pg_ctl start  -D /data/pg17_replika
+
+komutu çalıştırmak yeterli olacaktır.
+
+
+4- Bir postgresql recovery moda olup olmadığı kontrolu
+
+ psql -c "select pg_is_in_recovery()"
+
+sonucu 
+True döner ise sunucu recovery modda sadece okumalar kabul eder.
+false döner ise sunucu recovery modda değil yani yazmaları kabul eder. Streaming replica başarısız.
+
+5- Bir sorun anında standby Master rolüne almak için
+
+standby üzerinde
+
+select pg_promote();
+
+yada 
+
+pg_ctl promote -D /pgdata/pg16 
+
+komutunun yürütülmesi gerekir.
+
+
+-- aktif replikasyonları listesi master üzerinde
+select * from pg_Stat_replication ;
+
+select * from pg_replication_slots ;
+
+
+-- Payten 725 ikinci gün
+
+sql çıktı şeklinde backup alacğaımızda, pg_dump  , bir database alıyordu. paralllik özelliği
+
+pg_dumpall tüm database cluster alıyordu. ama parallelik özelliği yoktu. genelde kullanıclar ve iskelet yapasını almak için kullanıyoruz.
+
+
+-- log -shipping ,    archiver
+
+pitr işlemi gerçkeleştirmek için, elimizde wal dosyaların arşivinin kesintisiz / eksiksiz olması lazım. ayrınca full backup (pg_basebackup) ihtiyacımız.
+
+archive_mode = on 
+
+archive_command = ,  her 16 mb wal dosyası dolduktan sonra switch olduğunda. archive_mode komut tetikleniyor.  echo 'profelis',
+
+archive_command = 'test ! -f /mnt/server/archivedir/%f && cp %p /mnt/server/archivedir/%f'  
+
+archive_mode açıldığına bir tehlike, archive_command başarılı çalışmaz ise, wal dosyaları recyle olmuyor. archive command başarılı çalışmasını bekliyor.
+
+/*
+2️⃣ Streaming replication  , streaming protokol, master (wal_sender) , standby(wal_reciver) - read only
+
+Streaming replication allows a standby server to stay more up-to-date than is possible with file-based log shipping. The standby connects to the primary, which streams WAL records to the standby as they're generated, without waiting for the WAL file to be filled.
+
+🔸 Log sihpping metodunda, wal dosyaların dolması beklenirken , streaming replication wal kayıtları yazıldıkça beklemeden aktarımı gerçekleşir.
+
+🔸 bir önceki konumuzda archiver log-shipping doğası gereği async yapıdaydı. streaming ise sync/async koşulu sağlayabiliyoruz.
+
+
+
+master -> wal_level=replica, standby -> primary_conninfo , standby.signal
+
+Yapılacak işlemlerin Özeti;
+1. Master sunucuda standby ip izni düzenlemesi gerçekleşir.
+2. Master sunucuda replikasyon işlemi için kullanıcı oluşturulur.
+3. Standby sunucu üzerinde masterda kopya alma işlemi gerçekleştirilir.
+4. Standby üzerinde primary_conninfo, standby.signal düzenlenmesi yapılır.
+5. Standby start verilir.
+
+
+💼 CALISMA replikasyon 
+
+1- replication işlemleri gerçekleştirecek bir kullanıcı oluşturulur.
+
+psql -c "create role replicator with replication login password 'replicator'" ;
+
+2- masterda pg_hba.conf içinde standby sunucusun ip si tanımlanır.
+
+nano /pgdata/pg16/pg_hba.con
+
+host    replication     replicator      10.10.10.10/32               scram-sha-256
+
+
+3-  standby sunucuda pg_basebackup komutu ile master kopyasını alınması işlemi başlatılır.
+
+
+/usr/lib/postgresql/17/bin/pg_basebackup -h 10.10.11.141 -p 5432 -U replicator   -D /data/pg17  -Xs -P -v --slot=ankara -C --checkpoint=fast -R
+
+-- archive komutu ilişkisi bulunmamakta.
+
+-Xs slot oluşturma komutu.
+-P ne kadar % ilerlediği basebackup
+-R aldığımız basebackup standby moduna hazır getirmiş oluyor. start an replica moduna çalışmaya başıyor. standby.signal, primary_conninfo
+--slot , wal streaming yapılacak slotun ismi.
+
+Replicator parolası girdikten sonra süreç hata vermez ise aşağıdaki gibi tamamlanacaktır.
+
+/usr/lib/postgresql/16/bin/pg_ctl start  -D /pgdata/pg16
+
+komutu çalıştırmak yeterli olacaktır.
+
+4- Bir postgresql recovery moda olup olmadığı kontrolu
+
+psql -c "select pg_is_in_recovery()" ;
+
+wal_keep_size    
+max_slot_wal_keep_size (500gb)
+
+select * from pg_Stat_replication ;
+select * from pg_replication_slots ;
+
+11:15 kadar ara
+
+5- Bir sorun anında standby Master rolüne almak için
+
+standby üzerinde
+
+select pg_promote();
+
+yada 
+
+pg_ctl promote -D /pgdata/pg16 
+
+komutunun yürütülmesi gerekir.
+
+
+-- swithcover işlemi adımları
+
+1. master kapandı 
+
+2. standby promote yürüttüm.
+
+3. eski_master ayağa kalktığında. direk başlatmadım. önce standby.signal
+
+4. eski_master postgresq.auto.conf , primary_conninfo bilgisin eklenmesi
+
+5. eski_master start kümeye standby katılacaktır.
+
+select * from pg_stat_Replication;
+
+garanti altına almak 
+- master
+pg_hba all_recejt
+- master
+select * from pg_stat_Replication;
+
+Cascading replication
+
+12:00 - 14:00
+
+
+-- master üzerinde hba düzenlenmesi.
+
+-- standby üzerinde  
+pg_basebackup masterın yedeğini , basebackup ek parametreleri bu sayede standby hazır halde yedeğe sahip oluyordurk.
+sonrasında yedeğe start verdiğimiz vakit. replika şeklinde kalkıyor.
+
+/*---------------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/runtime-config-replication.html
+⭕️ Streaming replikasyon parametreleri
+--------------------------------------------------------------------
+-- Replika kümelerinde nodeların üstlenebileceği 4 farklı.
+19.6.1. Sending Servers
+19.6.2. Primary Server
+19.6.3. Standby Servers
+19.6.4. Subscribers
+
+-- max_wal_senders (integer) default:10
+
+Eş zamanlı gerçekleşek wal_sender limitini belirler.
+Replica (standby) node sayısına eşit yada fazla olması gerekir.
+
+örn,  20 standby var ise, max_wal_sender en az 20 olması.
+
+-- max_replication_slots default:10
+
+Slotlu replikasyon sayısının limiti.
+
+-- wal_keep_size (integer) (varsayılan :0)  💥💥💥  --slotsuzlar
+pg_wal dizininde tutulan wal dosyalarının minumum boyutunu belirtir. Bu sayede
+standbylardan biri düştüğü durumda ve sonradan geri geldiğinde aradaki farkı buradaki
+wal dosyalarını işleyerek kapatabilir. 
+
+100gb tanımlarsam, her zaman pg_Wal dizininde 100gb wal dosyası bekleyecektir.
+
+-- max_slot_wal_keep_size (integer) (varsayılan : 0 ) 💥💥💥 --slot ☢️☢️☢️
+
+Slot ile başlatılan replikasyonlarda, eğer slot üzerinden replika sunucuya WAL trafiği gerçekleşmezse, pg_wal dizininde WAL dosyaları birikir; bu birikim, replika tekrar aktif olup WAL tüketimine başlayana kadar devam eder. 
+
+Bu nedenle, askıda kalan veya kullanılmayan slotların pg_wal dizinini doldurmasını önlemek için bu parametre, tutulabilecek WAL dosyalarının maksimum boyutunu belirlemek amacıyla kullanılır.
+
+
+--wal_sender_timeout (integer)
+
+60 sn boyunca standby ulaşılamaz olursa standbyın crash olduğunu varsayılarak replikasyon bağlantısını sonlandırır.
+
+Aradaki internet bağlantısı zayıf ve sorunlu ise yüksek ayarlanması düşünülebilir.
+
+
+-- synchronized_standby_slots
+
+logical replication slotlarının switchover durumlarında ayakta kalmasını sağlar.
+
+
+/*-------------------------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/runtime-config-replication.html#RUNTIME-CONFIG-REPLICATION-PRIMARY
+🔶 19.6.2. Primary Server 
+----------------------------------------------------------------------
+
+-- ⭕️ synchronous_standby_names default:null 💥💥💥🚨🚨🚨
+
+🔸 Streaming Replication kullanan sistemlerde, hangi standby sunucuların senkron (synchronous) replikasyona dahil olacağını tanımlar. Bu parametre boş bırakılırsa tüm replikasyonlar asenkron (asynchronous) olur.
+
+
+synchronous_standby_names= '*' şeklinde ayarlayabiliriz.
+
+Bu şekilde standbyların en az birinde, masterdaki yazma işlemi sonucu gerçekleşen wal kaydını alması beklenir. Standby wal kaydını aldıktan sonra masterı bilgilendirilir ve client işlemi (commit ) başarılı olur. 
+
+aynı lokasyon 1 master 2 standby. 
+
+🚨 Bu yapılandırma, standby sunuculardan her zaman en az birinin güncel kalmasını ve veri kaybı olmadan failover yapılabilmesini sağlar. 
+
+☢️ Eğer master, standbylardan birinden geri dönüş alamaz ise, gelen yazma işlemleri beklemede kalacaktır.
+
+ℹ️ Bu sayede her zaman bir verinin en az iki farklı server yazıldığını garantilemiş oluyoruz. Masterın sunucuda oluşacak bir erişim sorununda , Master olmaya aday  production ortamımızı kesintiye uğratmayacak standby sunucu adayını garantilemiş oluyoruz.
+
+
+[FIRST] num_sync ( standby_name [, ...] )
+ANY num_sync ( standby_name [, ...] )
+standby_name [, ...]
+
+ℹ️ show cluster_name; (standby_name)
+varsayılan null olarak tanımlıdır. postgresql.conf dosyasında veya SQL istemciden ALTER SYSTEM ile tanımlanabilir ve değişikliğin etkili olması için sunucunun yeniden başlatılması gerekir — genellikle bir standby sunucusunun application_name değeri olarak tanımlanarak synchronous standby olarak seçilmesini sağlamak amacıyla kullanılır.
+
+
+✨ synchronous_standby_names='*'
+
+Rastegele standbyların en az birinde geri dönüş beklenir.
+
+
+✨ synchronous_standby_names=  FIRST 3 (ankara, adana, izmir, bursa) --
+sync,
+ilk 3 sunucu ankara, adana, izmir lokasyouna wal dosyası yazılıp stadnby geri dönüş bekleyecektir. 
+
+ankara down olduğunda , adana,izmir,bursa
+
+iki datancenter
+
+
+dc-1  (istabnul)
+
+master , standby -1 , standby -2 
+
+dc2-2, (ankara)
+
+standby-3 ,standby -4 ,standby -5 
+
+synchronous_standby_names=  FIRST 2 (standby-3, standby -1, standby -4, standby -2 ,standby -5, master ) 
+
+-- first 2 her zaman ilk iki tane standby yanıt beklenecektir.
+
+synchronous_standby_names=  any 2 (standby-3, standby -1, standby -4, standby -2 ,standby -5, master ) 
+
+-- any 2 her zaman restgale iki tane standby yanıt beklenecektir.
+
+-- rapor sunucunuz, bu sunucuyu failover dahil etmek istemiyoruz.
+
+synchronous_standby_names=  any 1 (standby -1 ,standby-2,master) 
+
+
+🌐 https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-SYNCHRONOUS-COMMIT
+-- ⭕️ synchronous_commit
+
+synchronous_standby_names wal dosyalarına yanıt verme seviyesi belirliyor.
+
+https://www.percona.com/blog/wp-content/uploads/2020/08/sychronous_commit-1.png
+
+remote_apply (5)    crash-safe  (wal dosyası replikada diske yazıldı ve oynatıldı)
+on (4)              crash-safe  (wal dosyası replikada diske yazıldı) varsyayılan
+remote_write(3)     data-loss   (wal dosyası replika aldı)
+local(2)		    data-loss   (wal dosyası lokale yazıldı)
+off (1)             local-data-loss  (wal dosyası lokale yazılmasından emin değiliz. )
+
+⚠️ Table 19.1. synchronous_commit Modes tablosu üzerinde synchronous_commit crash durumunda nodeların ayakta kalma durumlarına yer verilmiştir.
+☢️ varsayılan on , bu seviyenin altına düşürülmemesi önerelir. crash sonrası sistem genelinde veri kaybı oluşmaması için.
+
+-- Seviyeler arası perfomans karşılaştırılması.
+https://www.enterprisedb.com/sites/default/files/blogs/table_2_synch_blog.png
+
+
+/*-------------------------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/current/runtime-config-replication.html#RUNTIME-CONFIG-REPLICATION-STANDBY
+🔶 19.6.3. Standby Servers 
+---------------------------------------------------------------------
+buradaki parametreler standby.signal olursa dizinde yani recovery modda başlar ise aktif
+olur. Postgresql buradaki parametreleri dikkata alır.
+
+🔸 primary_conninfo (string) 
+
+Master sunucuya ait connection string bilgisi.
+🎯 master sunucunun ip si değiştiği durumlarda manuel olarak buradaki ip değiştirilerek reload atmamız replika sürecinin kesintiye uğramaması sağlanabilir.
+
+Bu rahatlığı yapabilmeniz. wal_keep_size yeterli büyüyklüte olması lazım.
+
+🔸 primary_slot_name 
+
+replikasyon bağlantısını sağlanacağı slotu belirtmek için.
+
+🔸 hot standby default: on
+
+standby sunucunun select sorgularını kabul etmesi sağlar. default açık durumdadır.
+
+🌐 https://www.postgresql.org/docs/current/hot-standby.html#HOT-STANDBY-CONFLICT
+-- hot standby conflict konusu ayrıntılı incelemek için linke bakılabilir.
+1.Access Exclusive Lock çakışmaları:
+Master üzerinde LOCK, DROP, ALTER gibi DDL işlemleri yapılırsa, standby'daki tabloları okuyan sorgularla çakışır.
+
+2.Tablespace silinmesi (DROP TABLESPACE):
+Master üzerinde tablespace silinirse, standby üzerinde o tablespace'i geçici dosyalar için kullanan sorgularla çakışır.
+
+3.Veritabanı silinmesi (DROP DATABASE):
+Master üzerinde bir veritabanı silinirse, standby’da o veritabanına bağlı oturumlarla çakışır.
+
+4.VACUUM temizlik kayıtları (WAL'den gelen):
+Master'dan gelen VACUUM işlemi sonucu silinmiş satırları gören snapshot’lara sahip standby transaction'larıyla çakışır.
+
+5.Sayfa erişimi çakışması:
+VACUUM işleminin hedef sayfasına standby'daki bir sorgu erişiyorsa, çakışma olur — veri görünür olmasa bile.
+
+
+🔸 max_standby_archive_delay default:30s , restore_command ile yapılandırma
+show max_standby_archive_delay; --30s 
+
+ • When hot standby is active, this parameter determines how long the standby server should wait before canceling standby queries that conflict with about-to-be-applied WAL entries.
+ • Standby üzerinde wal dosyası replay olması için oluşabilecek maksimum lag süresi 30s
+ • 30s sonunda replay olmayı engelleyen sorgular cancel olacaktır. 
+ 
+🔸max_standby_streaming_delay default: 30s
+show max_standby_streaming_delay;
+ • Yukarıdaki parametre ile aynı anlama geliyor. Streaming replikasyon olan ortamlarda gerçekleşiyor.
+
+
+⚠️ standby üzerinde çalışan sorgularda ve loglarda bu şekilde hatalar gözlemlenebilir. Uygulamanın buna hazır olması gerekir.
+ERROR:  canceling statement due to conflict with recovery
+DETAIL:  User was holding a relation lock for too long.
+
+ERROR: canceling statement due to conflict with recovery
+Detail: User query might have needed to see row versions that must be removed
+
+⚠️ Bu parametreler yüksek ayarlanabilir ama bu durumda, sorgular cancel olmadığı için belirtilen süre kadar standbydaki verilerin güncelliği mastera göre geride kalacaktır.
+
+🎯 standby üzerinde conflict durumlarını görmek için,
+postgres=# select * from pg_stat_database_conflicts where datname='postgres';
+
+-[ RECORD 1 ]------------+---------
+datid                    | 5
+datname                  | postgres
+confl_tablespace         | 0
+confl_lock               | 3
+confl_snapshot           | 0
+confl_bufferpin          | 0
+confl_deadlock           | 0
+confl_active_logicalslot | 0
+
+
+🔸 hot_standby_feedback: off
+
+⚠️ Önemli ölçüde conflict durumlarını engellesede hala conflict durumların oluşması mümkündür.
+
+🎯 Masterda üzerinde vacuum işlemi sonucu dead-tuple temizliği için standby üzerinde bu dead-tuplelara erişen sorgular conflict durumunu tetikleyecektir süre sonunda cancel olacaktır. Sorguların cancel olmadan çalışması için hot_standby_feedback parametresi açılarak çalışması sağlanabilir.
+
+
+🔸 recovery_min_apply_delay :0 , geriden gelen standby
+
+wal dosyaların replay edilmesi için geçmesi gereken süreyi belirtir. delaylı replika planlanmasında kullanılır.
+
+Örn. Sistemde yanlış veri güncellemelerine karşı , yedekten dönüşten daha hızlı şekilde veriye erişecek standby sunucu bulundurulması için düşünülebilir.
+
+4 hour , 1day, 1 week gibi
+
+⚠️ Synchronous replication is affected by this setting 
+when synchronous_commit is set to remote_apply; 
+every COMMIT will need to wait to be applied.
+synchronous_commit = 'remote_apply'; durumu bu parametre ile çakışmaktadır.
+
+
+/*-------------------------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/17/runtime-config-replication.html#RUNTIME-CONFIG-REPLICATION-SUBSCRIBER
+🔶 19.6.4. Subscribers 
+---------------------------------------------------------------------------------
+
+🔸 max_replication_slots: 10
+Kaç farklı abonelik (subscription)  tanımı yapılacağını belirler.
+
+🔸 max_logical_replication_workers: 4
+
+logical replication kullanılacak paralel işlemler için havuz.
+
+🔸 max_sync_workers_per_subscription: 2
+
+initial data copy , veri kopyalama aşamasında kaç adet paralel tablo kopyalanması 
+gerçekleşecek onu limitler.
+
+🔸 max_parallel_apply_workers_per_subscription: 2
+
+Normal replikasyon sürecin kullanılabilecek paralel worker sayısı.
+
+abonelik (subscription) streaming = parallel belirtilerek yapılmış ise.
+
+
+Klasik master - standby streaming replikasyonda database clusterın replikası gerçekleşmektedir.
+
+Sadece a veritabanı  ya da t tablosunu ya da sadece şu kolonları yada satırları filtrelenmesini gerçekleştiremek istediğimiz durumda bu esnekliği logical replication sağlıyor. 
+
+/*-------------------------------------------------------------------------------
+🌐 https://www.postgresql.org/docs/17/logical-replication.html
+⭕️ Chapter 29. Logical Replication (publisher, subscriber)
+-- PostgreSQL 10+ 
+---------------------------------------------------------------------------------
+🔸Logical replikasyon, database cluster tamamının yada belirli bölümlerin ⚠️DATA DEĞİŞİKLİKLERİNİN başka bir postgres veritabanına gerçek zaman replikasyonunu sağlar. 
+
+🔸Klasik replikasyondan göre çok fazla esnekliğe sahiptir. Tablo, satır , kolon bazında, DML (update /delete / insert) işlemlerine göre replika olacak datalar şekillendiriebilir.
+
+
+🔸 Klasik master - standby rolleri yerine
+Publisher -  Subscriber  şeklinde tanım kullanılmaktadır.
+
+🔸Publisher			Verilerin üretildiği (gönderen) sunucu.
+🔸Subscriber		Verilerin alındığı (alan) sunucu.
+
+🔸Publication		Yayınlanacak tabloların tanımlandığı yapı.
+🔸Subscription		Yayınlara abone olan yapı.
+
+🌐 https://github.com/eulerto/wal2json
+Çözümlenen wal kayıtlarına örnek olması için incelenebilir.
+
+
+🌐 https://www.postgresql.org/docs/17/logical-replication-quick-setup.html
+⭕️ Basit logical replication yapılandırılması
+
+
+
+
+ÇAlışma logical setup
+
+*/*/*/*/*/*/
+-- Publisher (master)
+-- Publisher sunucu wal_level seviyesi logical olmalı. 
+wal_level = logical   
+
+-- Değil ise 
+Show wal_level; 
+alter system set wal_level to 'logical';
+select pg_Reload_conf();
+
+-- -- parametre değişiklik restart gerektiriyor.
+select * from pg_settings where pending_restart is true;
+
+-- Publisher (master)
+create table users (c1 serial  , c2 text );
+
+CREATE PUBLICATION pub_user FOR TABLE users;
+
+-- subscriber (standby) database
+CREATE SUBSCRIPTION sub_user CONNECTION 'dbname=postgres host=10.10.11.142 port=5433 user=logicaluser password=logicaluser' 
+PUBLICATION pub_user;
+
+
+select * from pg_stat_subscription_stats; 
+
+select * from pg_stat_subscription;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
